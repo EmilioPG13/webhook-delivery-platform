@@ -1,0 +1,4 @@
+{
+  "request": { "method": "POST", "urlPath": "/fail500" },
+  "response": { "status": 500, "body": "this receiver always fails" }
+}

@@ -1,0 +1,4 @@
+{
+  "request": { "method": "POST", "urlPath": "/ok" },
+  "response": { "status": 200, "body": "received" }
+}

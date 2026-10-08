@@ -1,3 +1,9 @@
+# The whole stack: docker compose up --build
+#
+# For working on the code instead, start only the dependencies and run the app from the IDE or Maven
+# with the dev profile:  docker compose up -d --wait postgres elasticmq
+#
+# Every secret below is a public throwaway for local use. Never reuse them anywhere else.
 services:
   postgres:
     image: postgres:18
@@ -15,6 +21,54 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # An SQS-compatible queue. In AWS this is the real SQS.
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.7.1
+    ports:
+      - "9324:9324"
+
+  # The customer's server, as far as the platform is concerned. Register http://receiver:8080/ok as an
+  # endpoint and watch what arrives at http://localhost:8090/__admin/requests
+  receiver:
+    image: wiremock/wiremock:3.13.2
+    command: ["--verbose"]
+    volumes:
+      - ./load/receiver:/home/wiremock:ro
+    ports:
+      - "8090:8080"
+
+  # The API role: authenticates, publishes events, answers queries. No profile needed.
+  api: &app
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &app-env
+      DATABASE_URL: jdbc:postgresql://postgres:5432/webhooks
+      DATABASE_USER: webhooks
+      DATABASE_PASSWORD: webhooks
+      WEBHOOKS_ADMIN_TOKEN: dev-admin-token
+      WEBHOOKS_MASTER_KEY: ZGV2LW9ubHktbWFzdGVyLWtleS0zMi1ieXRlcyEhISE=
+      # The receiver above speaks plain http. Production keeps this false.
+      WEBHOOKS_ENDPOINTS_ALLOW_INSECURE_HTTP: "true"
+      WEBHOOKS_QUEUE_ENDPOINT: http://elasticmq:9324
+      WEBHOOKS_QUEUE_CREATE_IF_MISSING: "true"
+    ports:
+      - "8081:8080"  # 8081 on the host: 8080 is often taken by other desktop software
+
+  # The worker role: dispatcher, queue consumers and reaper. It scales independently of the API.
+  worker:
+    <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticmq:
+        condition: service_started
+    environment:
+      <<: *app-env
+      SPRING_PROFILES_ACTIVE: worker
+    ports: []
 
 volumes:
   pgdata:

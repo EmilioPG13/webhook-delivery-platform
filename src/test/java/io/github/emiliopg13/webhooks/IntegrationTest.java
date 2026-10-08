@@ -4,6 +4,7 @@ import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +28,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Import(TestcontainersConfiguration.class)
+@Import({ TestcontainersConfiguration.class, TestClockConfiguration.class })
 @ActiveProfiles("test")
 public abstract class IntegrationTest {
 
@@ -35,6 +36,9 @@ public abstract class IntegrationTest {
 
 	protected record TestTenant(UUID id, UUID apiKeyId, String apiKey) {
 	}
+
+	@Autowired
+	protected OffsetClock clock;
 
 	@Autowired
 	protected MockMvc mvc;
@@ -77,6 +81,26 @@ public abstract class IntegrationTest {
 			.getResponse()
 			.getContentAsString();
 		return json.readTree(response);
+	}
+
+	/** Publishes through the API and returns the new event's id. */
+	protected UUID publishEvent(TestTenant tenant, String type, String dataJson) throws Exception {
+		String response = mvc
+			.perform(as(tenant, post("/v1/events")).contentType(MediaType.APPLICATION_JSON)
+				.content(publishBody(type, dataJson)))
+			.andExpect(status().isAccepted())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return UUID.fromString(json.readTree(response).get("id").asString());
+	}
+
+	/** Ids of the deliveries an event produced, oldest first. */
+	protected List<UUID> deliveriesOf(UUID eventId) {
+		return jdbc.sql("SELECT id FROM deliveries WHERE event_id = :eventId ORDER BY id")
+			.param("eventId", eventId)
+			.query(UUID.class)
+			.list();
 	}
 
 	protected static String publishBody(String type, String dataJson) {

@@ -16,7 +16,21 @@
 	<properties>
 		<java.version>25</java.version>
 		<springdoc.version>3.1.1</springdoc.version>
+		<aws-sdk.version>2.55.12</aws-sdk.version>
+		<wiremock.version>3.13.2</wiremock.version>
+		<standard-webhooks.version>1.2.0</standard-webhooks.version>
 	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>${aws-sdk.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springdoc</groupId>
@@ -54,6 +68,14 @@
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>sqs</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.httpcomponents.client5</groupId>
+			<artifactId>httpclient5</artifactId>
 		</dependency>
 
 		<dependency>
@@ -109,6 +131,25 @@
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<!-- The standalone jar shades Jetty, so it cannot clash with the application's Tomcat. -->
+			<groupId>org.wiremock</groupId>
+			<artifactId>wiremock-standalone</artifactId>
+			<version>${wiremock.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<!-- Reference implementation: signatures produced by Signer must verify with it. -->
+			<groupId>com.standardwebhooks</groupId>
+			<artifactId>standardwebhooks</artifactId>
+			<version>${standard-webhooks.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.awaitility</groupId>
+			<artifactId>awaitility</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

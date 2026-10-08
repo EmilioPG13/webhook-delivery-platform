@@ -36,3 +36,24 @@ webhooks:
     key-version: 1
   endpoints:
     allow-insecure-http: false
+  worker:
+    dispatch-interval: 1s
+    dispatch-batch-size: 100
+    reaper-interval: 30s
+    # A delivery stuck in 'enqueued' longer than this goes back to 'pending'.
+    stuck-after: 2m
+    # Must outlast the delivery timeout and stay below the queue's visibility timeout.
+    lease: 45s
+    consumers: 2
+    max-concurrent-deliveries: 50
+    connect-timeout: 5s
+    delivery-timeout: 15s
+  queue:
+    name: webhook-deliveries
+    region: ${AWS_REGION:us-east-1}
+    # Empty means real AWS. Local runs point it at ElasticMQ (see the dev profile).
+    endpoint: ${SQS_ENDPOINT:}
+    # In AWS the queues come from Terraform; only local runs and tests create them.
+    create-if-missing: false
+    visibility-timeout: 60s
+    max-receive-count: 5
