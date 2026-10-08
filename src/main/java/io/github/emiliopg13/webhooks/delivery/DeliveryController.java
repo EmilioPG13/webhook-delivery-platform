@@ -1,13 +1,16 @@
 package io.github.emiliopg13.webhooks.delivery;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,6 +21,7 @@ import io.github.emiliopg13.webhooks.common.Paging;
 import io.github.emiliopg13.webhooks.tenant.TenantPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
@@ -29,8 +33,23 @@ class DeliveryController {
 
 	private final DeliveryRepository deliveries;
 
-	DeliveryController(DeliveryRepository deliveries) {
+	private final DeliveryService service;
+
+	DeliveryController(DeliveryRepository deliveries, DeliveryService service) {
 		this.deliveries = deliveries;
+		this.service = service;
+	}
+
+	@PostMapping("/{id}/replay")
+	@Operation(summary = "Send a delivery again",
+			description = "Creates a new delivery of the same event to the same endpoint, with fresh attempts. "
+					+ "The original keeps its history. Only delivered, failed or cancelled deliveries can be replayed.")
+	@ApiResponse(responseCode = "202", description = "The new delivery, waiting to be sent")
+	@ApiResponse(responseCode = "409", description = "The delivery is still in progress, or its endpoint was deleted")
+	ResponseEntity<DeliveryView> replay(@Parameter(hidden = true) @AuthenticationPrincipal TenantPrincipal tenant,
+			@PathVariable UUID id) {
+		DeliveryView replay = service.replay(tenant.tenantId(), id);
+		return ResponseEntity.accepted().location(URI.create("/v1/deliveries/" + replay.id())).body(replay);
 	}
 
 	@GetMapping

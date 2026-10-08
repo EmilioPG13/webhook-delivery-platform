@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.net.ssl.SSLException;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
+import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -35,6 +36,7 @@ import org.springframework.stereotype.Component;
 import io.github.emiliopg13.webhooks.delivery.DeliveryOutcome.HttpFailure;
 import io.github.emiliopg13.webhooks.delivery.DeliveryOutcome.NetworkFailure;
 import io.github.emiliopg13.webhooks.delivery.DeliveryOutcome.Success;
+import io.github.emiliopg13.webhooks.security.BlockedDestinationException;
 import jakarta.annotation.PreDestroy;
 
 /**
@@ -69,12 +71,16 @@ class WebhookSender {
 
 	private final Clock clock;
 
-	WebhookSender(WorkerProperties properties, Clock clock) {
+	/**
+	 * @param dnsResolver decides which addresses the client may connect to; in production it is the SSRF guard
+	 */
+	WebhookSender(WorkerProperties properties, Clock clock, DnsResolver dnsResolver) {
 		this.clock = clock;
 		this.totalTimeout = Timeout.ofMilliseconds(properties.deliveryTimeout().toMillis());
 		Timeout connectTimeout = Timeout.ofMilliseconds(properties.connectTimeout().toMillis());
 		this.client = HttpClients.custom()
 			.setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
+				.setDnsResolver(dnsResolver)
 				.setDefaultConnectionConfig(ConnectionConfig.custom()
 					.setConnectTimeout(connectTimeout)
 					.setSocketTimeout(totalTimeout)
@@ -179,6 +185,9 @@ class WebhookSender {
 		if (deadlineHit) {
 			return new NetworkFailure(ErrorKind.TIMEOUT, "No complete answer before the delivery deadline");
 		}
+		if (causedByBlockedDestination(ex)) {
+			return new NetworkFailure(ErrorKind.BLOCKED_DESTINATION, ex.getMessage());
+		}
 		ErrorKind kind = switch (ex) {
 			case ConnectTimeoutException _, SocketTimeoutException _ -> ErrorKind.TIMEOUT;
 			case SSLException _ -> ErrorKind.TLS;
@@ -188,6 +197,16 @@ class WebhookSender {
 		String message = ex.getClass().getSimpleName() + ": " + ex.getMessage();
 		return new NetworkFailure(kind, message.length() > MAX_ERROR_MESSAGE_CHARS
 				? message.substring(0, MAX_ERROR_MESSAGE_CHARS) : message);
+	}
+
+	/** The guard throws from inside the connection manager, which may wrap what it throws. */
+	private static boolean causedByBlockedDestination(Throwable ex) {
+		for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+			if (cause instanceof BlockedDestinationException) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	@PreDestroy

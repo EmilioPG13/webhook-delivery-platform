@@ -112,6 +112,14 @@ class EndpointController {
 				request.eventTypes()));
 	}
 
+	@PostMapping("/{id}/enable")
+	@Operation(summary = "Switch an endpoint back on",
+			description = "Clears the failure streak and the reason it was disabled. Deliveries that were waiting resume.")
+	EndpointResponse enable(@Parameter(hidden = true) @AuthenticationPrincipal TenantPrincipal tenant,
+			@PathVariable UUID id) {
+		return EndpointResponse.from(service.enable(tenant.tenantId(), id));
+	}
+
 	@DeleteMapping("/{id}")
 	@Operation(summary = "Delete an endpoint", description = "Pending deliveries to it are cancelled.")
 	@ApiResponse(responseCode = "204", description = "Endpoint deleted")

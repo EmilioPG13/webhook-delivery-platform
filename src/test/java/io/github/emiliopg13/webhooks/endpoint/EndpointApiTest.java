@@ -79,7 +79,7 @@ class EndpointApiTest extends IntegrationTest {
 		assertThat(plaintext).hasSize(32);
 		assertThat(new String(stored, StandardCharsets.ISO_8859_1))
 			.doesNotContain(new String(plaintext, StandardCharsets.ISO_8859_1));
-		assertThat(cipher.decrypt(stored, id)).isEqualTo(plaintext);
+		assertThat(cipher.decrypt(stored, id, version)).isEqualTo(plaintext);
 		assertThat(version).isEqualTo(1);
 		JsonNode another = createEndpoint(tenant, "https://example.com/a", "*");
 		assertThat(another.get("secret").asString()).isNotEqualTo(secret);
@@ -90,7 +90,10 @@ class EndpointApiTest extends IntegrationTest {
 		TestTenant tenant = createTenant();
 
 		for (String url : List.of("http://example.com/h", "https://user:pw@example.com/h", "ftp://example.com",
-				"not a url", "https://example.com/" + "a".repeat(2049))) {
+				"not a url", "https://example.com/" + "a".repeat(2049),
+				// Destinations inside the platform's own network: the SSRF guard's first line.
+				"https://169.254.169.254/latest/meta-data", "https://10.0.0.5/h", "https://localhost/h",
+				"https://[::1]/h", "https://2130706433/h")) {
 			mvc.perform(as(tenant, post("/v1/endpoints")).contentType(MediaType.APPLICATION_JSON)
 				.content("{\"url\":\"" + url + "\",\"event_types\":[\"*\"]}"))
 				.andExpect(status().isBadRequest())

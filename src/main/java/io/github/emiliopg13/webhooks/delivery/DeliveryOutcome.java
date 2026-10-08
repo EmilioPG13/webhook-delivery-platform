@@ -16,6 +16,14 @@ sealed interface DeliveryOutcome {
 	/** First bytes of the receiver's answer. Foreign content: never render it as HTML. */
 	String responseSnippet();
 
+	/**
+	 * Why the endpoint must be switched off right away, or null when this outcome is an ordinary failure. Such an
+	 * outcome also ends the delivery: retrying cannot help.
+	 */
+	default String fatalReason() {
+		return null;
+	}
+
 	/** The receiver answered 2xx. */
 	record Success(int status, String responseSnippet) implements DeliveryOutcome {
 
@@ -54,6 +62,12 @@ sealed interface DeliveryOutcome {
 			return "Receiver answered HTTP " + status;
 		}
 
+		/** 410 Gone is the receiver saying the endpoint was removed on purpose. */
+		@Override
+		public String fatalReason() {
+			return status == 410 ? "gone" : null;
+		}
+
 	}
 
 	/** No usable answer: the request did not complete. */
@@ -77,6 +91,12 @@ sealed interface DeliveryOutcome {
 		@Override
 		public String responseSnippet() {
 			return null;
+		}
+
+		/** The SSRF guard refused the destination: sending there again can only be an attack or a mistake. */
+		@Override
+		public String fatalReason() {
+			return kind == ErrorKind.BLOCKED_DESTINATION ? kind.value() : null;
 		}
 
 	}

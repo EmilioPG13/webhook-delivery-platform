@@ -72,10 +72,14 @@ public class ApiKeyService {
 			return Optional.empty();
 		}
 		Optional<TenantPrincipal> principal = jdbc
-			.sql("SELECT id, tenant_id FROM api_keys WHERE key_hash = :hash AND status = 'active'")
+			.sql("""
+					SELECT k.id, k.tenant_id, t.publish_rate_per_min
+					FROM api_keys k JOIN tenants t ON t.id = k.tenant_id
+					WHERE k.key_hash = :hash AND k.status = 'active'
+					""")
 			.param("hash", sha256(presentedKey))
 			.query((rs, rowNum) -> new TenantPrincipal(rs.getObject("tenant_id", UUID.class),
-					rs.getObject("id", UUID.class)))
+					rs.getObject("id", UUID.class), rs.getInt("publish_rate_per_min")))
 			.optional();
 		principal.ifPresent(found -> touchLastUsed(found.apiKeyId()));
 		return principal;

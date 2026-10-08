@@ -19,8 +19,11 @@ class AttemptRecorder {
 
 	private final DeliveryWorkRepository work;
 
-	AttemptRecorder(DeliveryWorkRepository work) {
+	private final BreakerProperties breaker;
+
+	AttemptRecorder(DeliveryWorkRepository work, BreakerProperties breaker) {
 		this.work = work;
+		this.breaker = breaker;
 	}
 
 	/**
@@ -54,6 +57,14 @@ class AttemptRecorder {
 		}
 		else {
 			work.recordEndpointFailure(endpointId, now);
+			String fatalReason = outcome.fatalReason();
+			if (fatalReason != null) {
+				work.disableEndpoint(endpointId, fatalReason, now);
+			}
+			else {
+				work.disableEndpointIfFailing(endpointId, breaker.failureThreshold(), now.minus(breaker.failingFor()),
+						now);
+			}
 		}
 		return true;
 	}

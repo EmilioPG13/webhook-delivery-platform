@@ -27,6 +27,7 @@ import io.github.emiliopg13.webhooks.common.PageResponse;
 import io.github.emiliopg13.webhooks.common.Paging;
 import io.github.emiliopg13.webhooks.event.EventPublishService.PublishResult;
 import io.github.emiliopg13.webhooks.event.EventRepository.Stored;
+import io.github.emiliopg13.webhooks.ratelimit.PublishRateLimiter;
 import io.github.emiliopg13.webhooks.tenant.TenantPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -73,12 +74,15 @@ class EventController {
 
 	private final Validator validator;
 
+	private final PublishRateLimiter rateLimiter;
+
 	EventController(EventPublishService publishService, EventRepository events, JsonMapper jsonMapper,
-			Validator validator) {
+			Validator validator, PublishRateLimiter rateLimiter) {
 		this.publishService = publishService;
 		this.events = events;
 		this.jsonMapper = jsonMapper;
 		this.validator = validator;
+		this.rateLimiter = rateLimiter;
 	}
 
 	/**
@@ -94,10 +98,17 @@ class EventController {
 			requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
 					content = @Content(schema = @Schema(implementation = PublishEventRequest.class))))
 	@ApiResponse(responseCode = "202", description = "Event accepted")
+	@ApiResponse(responseCode = "429", description = "The tenant's publish rate was exceeded; see the Retry-After header")
 	ResponseEntity<PublishEventResponse> publish(
 			@Parameter(hidden = true) @AuthenticationPrincipal TenantPrincipal tenant,
 			@RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
 			@RequestBody(required = true) byte[] body) {
+		// First, before any parsing or database work: a rejected request should cost as little as possible.
+		PublishRateLimiter.Verdict verdict = rateLimiter.tryAcquire(tenant.tenantId(), tenant.publishRatePerMin());
+		if (!verdict.admitted()) {
+			throw ApiException.tooManyRequests("Publish rate limit exceeded. Retry after " + verdict.retryAfterSeconds()
+					+ " seconds.", verdict.retryAfterSeconds());
+		}
 		if (body.length > MAX_BODY_BYTES) {
 			throw ApiException.payloadTooLarge("Request body must be at most " + MAX_BODY_BYTES + " bytes.");
 		}

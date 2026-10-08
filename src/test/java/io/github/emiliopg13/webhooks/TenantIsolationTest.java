@@ -76,6 +76,21 @@ class TenantIsolationTest extends IntegrationTest {
 	}
 
 	@Test
+	void anotherTenantCannotEnableAnEndpointOrReplayADelivery() throws Exception {
+		jdbc.sql("UPDATE endpoints SET active = false, disabled_reason = 'failing' WHERE id = :e")
+			.param("e", UUID.fromString(endpointId))
+			.update();
+		jdbc.sql("UPDATE deliveries SET status = 'failed' WHERE id = :d").param("d", UUID.fromString(deliveryId)).update();
+
+		mvc.perform(as(intruder, post("/v1/endpoints/" + endpointId + "/enable"))).andExpect(status().isNotFound());
+		mvc.perform(as(intruder, post("/v1/deliveries/" + deliveryId + "/replay"))).andExpect(status().isNotFound());
+
+		mvc.perform(as(owner, get("/v1/endpoints/" + endpointId)))
+			.andExpect(jsonPath("$.active").value(false))
+			.andExpect(jsonPath("$.disabled_reason").value("failing"));
+	}
+
+	@Test
 	void anotherTenantCannotReadEventsDeliveriesOrAttempts() throws Exception {
 		mvc.perform(as(intruder, get("/v1/events/" + eventId))).andExpect(status().isNotFound());
 		mvc.perform(as(intruder, get("/v1/deliveries/" + deliveryId))).andExpect(status().isNotFound());

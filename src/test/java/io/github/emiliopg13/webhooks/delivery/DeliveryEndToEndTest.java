@@ -122,6 +122,61 @@ class DeliveryEndToEndTest extends WorkerIntegrationTest {
 		assertThat(receiver.findAll(postRequestedFor(urlEqualTo(other)))).isEmpty();
 	}
 
+	/** Failure matrix row 3. */
+	@Test
+	void aRetryAfterLongerThanTheScheduleMovesTheNextAttemptThatFarAhead() throws Exception {
+		String path = freshPath();
+		receiver.stubFor(post(path).willReturn(aResponse().withStatus(503).withHeader("Retry-After", "3600")));
+		TestTenant tenant = createTenant();
+		createEndpoint(tenant, receiver.baseUrl() + path, "order.paid");
+		UUID deliveryId = deliveriesOf(publishEvent(tenant, "order.paid", "{}")).getFirst();
+
+		awaitAttempts(deliveryId, 1);
+		awaitStatus(deliveryId, "pending");
+
+		// The schedule alone would say 30 s; the receiver asked for an hour and the longer wait wins.
+		assertThat(Duration.between(clock.instant(), instant(delivery(deliveryId), "next_attempt_at")))
+			.isBetween(Duration.ofMinutes(55), Duration.ofMinutes(61));
+	}
+
+	/** Failure matrix row 4. */
+	@Test
+	void tooManyRequestsWithoutRetryAfterFollowsTheNormalSchedule() throws Exception {
+		String path = freshPath();
+		receiver.stubFor(post(path).willReturn(aResponse().withStatus(429)));
+		TestTenant tenant = createTenant();
+		createEndpoint(tenant, receiver.baseUrl() + path, "order.paid");
+		UUID deliveryId = deliveriesOf(publishEvent(tenant, "order.paid", "{}")).getFirst();
+
+		awaitAttempts(deliveryId, 1);
+		awaitStatus(deliveryId, "pending");
+
+		assertThat(Duration.between(clock.instant(), instant(delivery(deliveryId), "next_attempt_at")))
+			.isBetween(Duration.ofSeconds(20), Duration.ofSeconds(40));
+	}
+
+	/** Failure matrix row 25: a secret that fails authentication must never produce a signature. */
+	@Test
+	void aTamperedSecretIsNeverUsedAndNothingIsSent() throws Exception {
+		String path = freshPath();
+		receiver.stubFor(post(path).willReturn(aResponse().withStatus(200)));
+		TestTenant tenant = createTenant();
+		UUID endpointId = UUID.fromString(createEndpoint(tenant, receiver.baseUrl() + path, "order.paid").get("id").asString());
+		jdbc.sql("""
+				UPDATE endpoints SET secret_ciphertext = set_byte(secret_ciphertext, 20, get_byte(secret_ciphertext, 20) # 1)
+				WHERE id = :id
+				""").param("id", endpointId).update();
+		UUID deliveryId = deliveriesOf(publishEvent(tenant, "order.paid", "{}")).getFirst();
+
+		awaitAttempts(deliveryId, 1);
+
+		assertThat(attempts(deliveryId)).singleElement()
+			.satisfies(attempt -> assertThat(attempt).containsEntry("error_kind", "unexpected")
+				.containsEntry("error_message", "The endpoint secret could not be decrypted")
+				.containsEntry("response_status", null));
+		assertThat(receiver.findAll(postRequestedFor(urlEqualTo(path)))).isEmpty();
+	}
+
 	private LoggedRequest onlyRequestTo(String path) {
 		List<LoggedRequest> requests = receiver.findAll(postRequestedFor(urlEqualTo(path)));
 		assertThat(requests).hasSize(1);

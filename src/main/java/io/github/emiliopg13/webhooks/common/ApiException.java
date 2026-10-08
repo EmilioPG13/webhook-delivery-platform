@@ -1,6 +1,7 @@
 package io.github.emiliopg13.webhooks.common;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 
@@ -17,10 +18,17 @@ public final class ApiException extends RuntimeException {
 
 	private final List<FieldViolation> errors;
 
+	private final Map<String, String> headers;
+
 	private ApiException(HttpStatus status, String message, List<FieldViolation> errors) {
+		this(status, message, errors, Map.of());
+	}
+
+	private ApiException(HttpStatus status, String message, List<FieldViolation> errors, Map<String, String> headers) {
 		super(message);
 		this.status = status;
 		this.errors = errors;
+		this.headers = headers;
 	}
 
 	public static ApiException notFound(String what) {
@@ -39,6 +47,10 @@ public final class ApiException extends RuntimeException {
 		return invalid(List.of(new FieldViolation(field, message)));
 	}
 
+	public static ApiException conflict(String message) {
+		return new ApiException(HttpStatus.CONFLICT, message, List.of());
+	}
+
 	public static ApiException unprocessable(String message) {
 		return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, message, List.of());
 	}
@@ -47,12 +59,23 @@ public final class ApiException extends RuntimeException {
 		return new ApiException(HttpStatus.CONTENT_TOO_LARGE, message, List.of());
 	}
 
+	/** 429 with the {@code Retry-After} header telling the caller when to try again. */
+	public static ApiException tooManyRequests(String message, long retryAfterSeconds) {
+		return new ApiException(HttpStatus.TOO_MANY_REQUESTS, message, List.of(),
+				Map.of("Retry-After", Long.toString(retryAfterSeconds)));
+	}
+
 	public HttpStatus status() {
 		return status;
 	}
 
 	public List<FieldViolation> errors() {
 		return errors;
+	}
+
+	/** Headers the response must carry, such as {@code Retry-After}. */
+	public Map<String, String> headers() {
+		return headers;
 	}
 
 }

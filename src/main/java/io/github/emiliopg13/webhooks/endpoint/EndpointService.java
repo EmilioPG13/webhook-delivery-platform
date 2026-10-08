@@ -90,6 +90,14 @@ class EndpointService {
 		return endpoint;
 	}
 
+	/** Reactivates an endpoint the breaker (or a 410) switched off. Its pending deliveries resume on their own. */
+	@Transactional
+	Endpoint enable(UUID tenantId, UUID id) {
+		Endpoint endpoint = get(tenantId, id);
+		endpoint.enable(clock.instant());
+		return endpoint;
+	}
+
 	@Transactional
 	void delete(UUID tenantId, UUID id) {
 		Endpoint endpoint = get(tenantId, id);

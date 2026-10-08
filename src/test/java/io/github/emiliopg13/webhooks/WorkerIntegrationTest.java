@@ -27,10 +27,14 @@ import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 @ActiveProfiles("worker")
 @Import(ElasticMqConfiguration.class)
 @TestPropertySource(properties = { "test.database=worker", "webhooks.endpoints.allow-insecure-http=true",
+		"webhooks.endpoints.allow-private-destinations=true",
 		"webhooks.queue.create-if-missing=true",
 		// Short enough to watch a lost message come back; the lease (45 s of the injected clock) is what blocks it.
 		"webhooks.queue.visibility-timeout=3s", "webhooks.queue.send-retry-delay=10ms",
-		"webhooks.worker.dispatch-interval=200ms", "webhooks.worker.reaper-interval=500ms" })
+		"webhooks.worker.dispatch-interval=200ms", "webhooks.worker.reaper-interval=500ms",
+		// The demo-sized breaker (5 failures over a minute) so a test can trip it by moving the clock.
+		"webhooks.breaker.failure-threshold=5", "webhooks.breaker.failing-for=1m",
+		"webhooks.breaker.sweep-interval=500ms" })
 public abstract class WorkerIntegrationTest extends IntegrationTest {
 
 	@RegisterExtension

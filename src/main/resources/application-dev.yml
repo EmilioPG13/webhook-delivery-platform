@@ -9,6 +9,11 @@ webhooks:
     master-key: ZGV2LW9ubHktbWFzdGVyLWtleS0zMi1ieXRlcyEhISE=
   endpoints:
     allow-insecure-http: true
+    allow-private-destinations: true
+  breaker:
+    # Small enough to watch the breaker trip in a demo.
+    failure-threshold: 5
+    failing-for: 1m
   queue:
     endpoint: http://localhost:9324
     create-if-missing: true

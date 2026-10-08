@@ -63,7 +63,7 @@ final class RetryPolicy {
 				after.compareTo(MAX_RETRY_AFTER) > 0 ? MAX_RETRY_AFTER : after;
 			case HttpFailure _, NetworkFailure _ -> Duration.ZERO;
 		};
-		if (attemptsMade >= MAX_ATTEMPTS) {
+		if (failure.fatalReason() != null || attemptsMade >= MAX_ATTEMPTS) {
 			return new GiveUp();
 		}
 		Duration scheduled = jitter(DELAYS.get(attemptsMade - 1));

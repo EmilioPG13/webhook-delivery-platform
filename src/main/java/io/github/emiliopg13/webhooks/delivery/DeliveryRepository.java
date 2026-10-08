@@ -1,5 +1,6 @@
 package io.github.emiliopg13.webhooks.delivery;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +59,29 @@ public class DeliveryRepository {
 			.param("eventId", eventId)
 			.param("eventType", eventType)
 			.update();
+	}
+
+	/**
+	 * Creates a fresh delivery for the same event and endpoint, pointing back at {@code deliveryId}. Empty when the
+	 * delivery is not the tenant's, is still in flight, or its endpoint was deleted. The original is never touched.
+	 */
+	Optional<UUID> replay(UUID tenantId, UUID deliveryId, Instant now) {
+		return jdbc.sql("""
+				INSERT INTO deliveries (tenant_id, event_id, endpoint_id, replay_of, next_attempt_at, created_at,
+				                        updated_at)
+				SELECT d.tenant_id, d.event_id, d.endpoint_id, d.id, :now, :now, :now
+				FROM deliveries d
+				JOIN endpoints e ON e.id = d.endpoint_id
+				WHERE d.tenant_id = :tenantId AND d.id = :id
+				  AND d.status IN ('delivered', 'failed', 'cancelled')
+				  AND e.disabled_reason IS DISTINCT FROM 'deleted'
+				RETURNING id
+				""")
+			.param("tenantId", tenantId)
+			.param("id", deliveryId)
+			.param("now", Db.timestamp(now))
+			.query((rs, rowNum) -> rs.getObject("id", UUID.class))
+			.optional();
 	}
 
 	/** Deliveries created by publishing the event, not by manual replays. */

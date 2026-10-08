@@ -19,6 +19,8 @@ import jakarta.validation.constraints.Positive;
  * visibility timeout, so a lost message reappears after the lease expired
  * @param consumers long-polling loops reading the queue
  * @param maxConcurrentDeliveries deliveries in flight at once in this worker
+ * @param maxConcurrentPerEndpoint deliveries in flight at once to one endpoint, so a slow one cannot take every slot
+ * @param deferDelay how long a delivery waits in {@code pending} when its endpoint had no free place
  * @param connectTimeout how long to wait for a TCP and TLS connection
  * @param deliveryTimeout hard deadline for the whole exchange, from connecting to the last byte read
  */
@@ -26,6 +28,6 @@ import jakarta.validation.constraints.Positive;
 @Validated
 record WorkerProperties(@NotNull Duration dispatchInterval, @Positive int dispatchBatchSize,
 		@NotNull Duration reaperInterval, @NotNull Duration stuckAfter, @NotNull Duration lease,
-		@Positive int consumers, @Positive int maxConcurrentDeliveries, @NotNull Duration connectTimeout,
-		@NotNull Duration deliveryTimeout) {
+		@Positive int consumers, @Positive int maxConcurrentDeliveries, @Positive int maxConcurrentPerEndpoint,
+		@NotNull Duration deferDelay, @NotNull Duration connectTimeout, @NotNull Duration deliveryTimeout) {
 }

@@ -52,6 +52,8 @@ services:
       WEBHOOKS_MASTER_KEY: ZGV2LW9ubHktbWFzdGVyLWtleS0zMi1ieXRlcyEhISE=
       # The receiver above speaks plain http. Production keeps this false.
       WEBHOOKS_ENDPOINTS_ALLOW_INSECURE_HTTP: "true"
+      # ... and sits on the compose network, a private address the SSRF guard would refuse. Production keeps this false.
+      WEBHOOKS_ENDPOINTS_ALLOW_PRIVATE_DESTINATIONS: "true"
       WEBHOOKS_QUEUE_ENDPOINT: http://elasticmq:9324
       WEBHOOKS_QUEUE_CREATE_IF_MISSING: "true"
     ports:

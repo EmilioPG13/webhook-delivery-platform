@@ -23,7 +23,7 @@ class DeliveryWorkRepository {
 
 	/** Everything needed to make one HTTP attempt, read after the claim succeeded. */
 	record WorkItem(UUID deliveryId, UUID eventId, String eventType, String payloadJson, Instant eventCreatedAt,
-			UUID endpointId, String url, byte[] secretCiphertext, int attemptCount) {
+			UUID endpointId, String url, byte[] secretCiphertext, int secretKeyVersion, int attemptCount) {
 	}
 
 	private final JdbcClient jdbc;
@@ -87,7 +87,7 @@ class DeliveryWorkRepository {
 	private WorkItem load(UUID deliveryId, UUID eventId, UUID endpointId, int attemptCount) {
 		return jdbc.sql("""
 				SELECT ev.event_type, CAST(ev.payload AS text) AS payload, ev.created_at,
-				       en.url, en.secret_ciphertext
+				       en.url, en.secret_ciphertext, en.secret_key_version
 				FROM events ev, endpoints en
 				WHERE ev.id = :eventId AND en.id = :endpointId
 				""")
@@ -95,8 +95,24 @@ class DeliveryWorkRepository {
 			.param("endpointId", endpointId)
 			.query((rs, rowNum) -> new WorkItem(deliveryId, eventId, rs.getString("event_type"),
 					rs.getString("payload"), Db.instant(rs, "created_at"), endpointId, rs.getString("url"),
-					rs.getBytes("secret_ciphertext"), attemptCount))
+					rs.getBytes("secret_ciphertext"), rs.getInt("secret_key_version"), attemptCount))
 			.single();
+	}
+
+	/**
+	 * Gives back a delivery this worker claimed but cannot take on right now: it returns to {@code pending}, due at
+	 * {@code retryAt}, with its attempt count untouched. A deferral is not an attempt and must not use one up.
+	 */
+	void deferClaimed(UUID deliveryId, Instant retryAt, Instant now) {
+		jdbc.sql("""
+				UPDATE deliveries
+				SET status = 'pending', lease_until = NULL, next_attempt_at = :retryAt, updated_at = :now
+				WHERE id = :id AND status = 'enqueued'
+				""")
+			.param("id", deliveryId)
+			.param("retryAt", Db.timestamp(retryAt))
+			.param("now", Db.timestamp(now))
+			.update();
 	}
 
 	/**
@@ -176,6 +192,55 @@ class DeliveryWorkRepository {
 				WHERE id = :id AND (consecutive_failures <> 0 OR failing_since IS NOT NULL)
 				""")
 			.param("id", endpointId)
+			.update();
+	}
+
+	/**
+	 * The circuit breaker: switches the endpoint off once the streak is long enough in both count and duration.
+	 * Runs right after {@link #recordEndpointFailure}, in the same transaction, so it sees the streak that failure
+	 * just extended. An endpoint that is already off, deleted ones included, keeps its original reason.
+	 */
+	void disableEndpointIfFailing(UUID endpointId, int failureThreshold, Instant failingSinceAtLatest, Instant now) {
+		jdbc.sql("""
+				UPDATE endpoints
+				SET active = false, disabled_reason = 'failing', disabled_at = :now
+				WHERE id = :id AND active
+				  AND consecutive_failures >= :threshold AND failing_since <= :failingSinceAtLatest
+				""")
+			.param("id", endpointId)
+			.param("threshold", failureThreshold)
+			.param("failingSinceAtLatest", Db.timestamp(failingSinceAtLatest))
+			.param("now", Db.timestamp(now))
+			.update();
+	}
+
+	/** Switches the endpoint off for a reason that needs no streak, such as a 410 Gone. */
+	void disableEndpoint(UUID endpointId, String reason, Instant now) {
+		jdbc.sql("""
+				UPDATE endpoints
+				SET active = false, disabled_reason = :reason, disabled_at = :now
+				WHERE id = :id AND active
+				""")
+			.param("id", endpointId)
+			.param("reason", reason)
+			.param("now", Db.timestamp(now))
+			.update();
+	}
+
+	/**
+	 * Cancels the pending deliveries of endpoints that have been off since {@code disabledAtLatest}. Their
+	 * receivers had their chance; the history stays, and a replay can still send them later.
+	 */
+	int cancelPendingOfLongDisabledEndpoints(Instant now, Instant disabledAtLatest) {
+		return jdbc.sql("""
+				UPDATE deliveries d
+				SET status = 'cancelled', updated_at = :now
+				FROM endpoints e
+				WHERE e.id = d.endpoint_id AND NOT e.active AND e.disabled_at <= :disabledAtLatest
+				  AND d.status = 'pending'
+				""")
+			.param("now", Db.timestamp(now))
+			.param("disabledAtLatest", Db.timestamp(disabledAtLatest))
 			.update();
 	}
 

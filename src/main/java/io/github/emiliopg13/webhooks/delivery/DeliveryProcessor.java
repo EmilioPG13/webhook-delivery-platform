@@ -47,6 +47,8 @@ class DeliveryProcessor {
 
 	private final AttemptRecorder recorder;
 
+	private final EndpointConcurrencyLimiter endpointLimiter;
+
 	private final DeliveryQueue queue;
 
 	private final WorkerProperties properties;
@@ -56,13 +58,14 @@ class DeliveryProcessor {
 	private final JsonMapper json;
 
 	DeliveryProcessor(DeliveryWorkRepository work, EndpointSecretCipher cipher, WebhookSender sender,
-			RetryPolicy retryPolicy, AttemptRecorder recorder, DeliveryQueue queue, WorkerProperties properties,
-			Clock clock, JsonMapper json) {
+			RetryPolicy retryPolicy, AttemptRecorder recorder, EndpointConcurrencyLimiter endpointLimiter,
+			DeliveryQueue queue, WorkerProperties properties, Clock clock, JsonMapper json) {
 		this.work = work;
 		this.cipher = cipher;
 		this.sender = sender;
 		this.retryPolicy = retryPolicy;
 		this.recorder = recorder;
+		this.endpointLimiter = endpointLimiter;
 		this.queue = queue;
 		this.properties = properties;
 		this.clock = clock;
@@ -84,6 +87,23 @@ class DeliveryProcessor {
 			return;
 		}
 		WorkItem item = claimed.get();
+		if (!endpointLimiter.tryAcquire(item.endpointId())) {
+			// The endpoint already has its share in flight. Put the delivery back for a moment instead of waiting
+			// here: waiting would hold a global slot and the lease while a slow endpoint drags on.
+			work.deferClaimed(deliveryId, claimedAt.plus(properties.deferDelay()), clock.instant());
+			queue.delete(message);
+			return;
+		}
+		try {
+			deliverAndRecord(message, item);
+		}
+		finally {
+			endpointLimiter.release(item.endpointId());
+		}
+	}
+
+	private void deliverAndRecord(Message message, WorkItem item) {
+		UUID deliveryId = item.deliveryId();
 		int attemptNumber = item.attemptCount() + 1;
 		Instant startedAt = clock.instant();
 		long startedNanos = System.nanoTime();
@@ -102,7 +122,7 @@ class DeliveryProcessor {
 	private DeliveryOutcome deliver(WorkItem item, Instant startedAt) {
 		byte[] secret;
 		try {
-			secret = cipher.decrypt(item.secretCiphertext(), item.endpointId());
+			secret = cipher.decrypt(item.secretCiphertext(), item.endpointId(), item.secretKeyVersion());
 		}
 		catch (IllegalArgumentException ex) {
 			// Never guess: a wrong key must not produce a signature, so the request is not sent at all.

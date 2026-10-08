@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
@@ -19,8 +20,12 @@ import jakarta.persistence.Transient;
 /**
  * A customer-registered destination. Deleting is soft: deliveries keep a foreign key to the row, so it stays
  * with {@code disabledReason = "deleted"} and the API treats it as gone.
+ *
+ * <p>{@code @DynamicUpdate} matters: the worker changes the failure counters and {@code active} with plain SQL while
+ * this entity may be loaded, and a default Hibernate UPDATE writes every column, which would put stale counters back.
  */
 @Entity
+@DynamicUpdate
 @Table(name = "endpoints")
 public class Endpoint implements Persistable<UUID> {
 
@@ -99,6 +104,16 @@ public class Endpoint implements Persistable<UUID> {
 		if (eventTypes != null) {
 			this.eventTypes = List.copyOf(eventTypes);
 		}
+		this.updatedAt = now;
+	}
+
+	/** Switches the endpoint back on with a clean slate, so the breaker does not trip again on the old streak. */
+	void enable(Instant now) {
+		this.active = true;
+		this.consecutiveFailures = 0;
+		this.failingSince = null;
+		this.disabledReason = null;
+		this.disabledAt = null;
 		this.updatedAt = now;
 	}
 

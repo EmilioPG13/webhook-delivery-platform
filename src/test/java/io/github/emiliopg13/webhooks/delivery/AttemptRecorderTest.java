@@ -24,7 +24,8 @@ import io.github.emiliopg13.webhooks.delivery.RetryPolicy.GiveUp;
 import io.github.emiliopg13.webhooks.delivery.RetryPolicy.RetryAt;
 
 /** The record step: one transaction that stores the attempt, moves the delivery and updates the endpoint. */
-@TestPropertySource(properties = "test.database=attempt-recorder")
+@TestPropertySource(properties = { "test.database=attempt-recorder", "webhooks.breaker.failure-threshold=3",
+		"webhooks.breaker.failing-for=10m" })
 class AttemptRecorderTest extends IntegrationTest {
 
 	private static final Instant NOW = Instant.parse("2026-10-08T12:00:00Z");
@@ -119,6 +120,55 @@ class AttemptRecorderTest extends IntegrationTest {
 	}
 
 	@Test
+	void theBreakerNeedsBothEnoughFailuresAndEnoughTime() {
+		// Three failures in a row, but only two minutes after the first: a burst, not a dead endpoint.
+		failAt(1, NOW);
+		failAt(2, NOW.plusSeconds(60));
+		failAt(3, NOW.plusSeconds(120));
+		assertThat(endpoint()).containsEntry("active", true).containsEntry("consecutive_failures", 3);
+
+		// The fourth failure comes ten minutes after the first, so both conditions hold.
+		Instant tripped = NOW.plus(Duration.ofMinutes(10));
+		failAt(4, tripped);
+
+		assertThat(endpoint()).containsEntry("active", false).containsEntry("disabled_reason", "failing");
+		assertThat(instant(endpoint(), "disabled_at")).isEqualTo(tripped);
+	}
+
+	@Test
+	void aSuccessInTheMiddleResetsTheStreakBeforeTheBreakerCanTrip() {
+		failAt(1, NOW);
+		failAt(2, NOW.plusSeconds(60));
+		enqueue(deliveryId);
+		recorder.record(deliveryId, endpointId, 3, NOW, 10, new Success(200, null), null, NOW.plusSeconds(120));
+		failAt(4, NOW.plus(Duration.ofMinutes(30)));
+
+		assertThat(endpoint()).containsEntry("active", true).containsEntry("consecutive_failures", 1);
+	}
+
+	@Test
+	void goneSwitchesTheEndpointOffAtOnceAndEndsTheDelivery() {
+		recorder.record(deliveryId, endpointId, 1, NOW, 10, new HttpFailure(410, null, null), new GiveUp(), NOW);
+
+		assertThat(delivery()).containsEntry("status", "failed");
+		assertThat(endpoint()).containsEntry("active", false)
+			.containsEntry("disabled_reason", "gone")
+			.containsEntry("consecutive_failures", 1);
+	}
+
+	@Test
+	void aDeletedEndpointKeepsItsReasonWhenALateFailureArrives() {
+		jdbc.sql("UPDATE endpoints SET active = false, disabled_reason = 'deleted', disabled_at = :at WHERE id = :id")
+			.param("at", Db.timestamp(NOW))
+			.param("id", endpointId)
+			.update();
+
+		recorder.record(deliveryId, endpointId, 1, NOW, 10, new HttpFailure(410, null, null), new GiveUp(), NOW);
+
+		assertThat(endpoint()).containsEntry("disabled_reason", "deleted");
+	}
+
+	@Test
 	void recordingTheSameAttemptTwiceChangesNothingTheSecondTime() {
 		assertThat(recorder.record(deliveryId, endpointId, 1, NOW, 10, new Success(200, null), null, NOW)).isTrue();
 
@@ -138,6 +188,19 @@ class AttemptRecorderTest extends IntegrationTest {
 
 		assertThat(attempts()).isEmpty();
 		assertThat(delivery()).containsEntry("status", "pending").containsEntry("attempt_count", 0);
+	}
+
+	/** Records a failed attempt as the worker would: the delivery is in flight, then goes back to pending. */
+	private void failAt(int attemptNumber, Instant now) {
+		if (attemptNumber > 1) {
+			jdbc.sql("UPDATE deliveries SET attempt_count = :n WHERE id = :id")
+				.param("n", attemptNumber - 1)
+				.param("id", deliveryId)
+				.update();
+		}
+		enqueue(deliveryId);
+		recorder.record(deliveryId, endpointId, attemptNumber, now, 10, new HttpFailure(500, null, null),
+				new RetryAt(now), now);
 	}
 
 	private void enqueue(UUID id) {

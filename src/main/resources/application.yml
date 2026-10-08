@@ -36,6 +36,8 @@ webhooks:
     key-version: 1
   endpoints:
     allow-insecure-http: false
+    # Turns the SSRF guard off. For local development and tests only.
+    allow-private-destinations: false
   worker:
     dispatch-interval: 1s
     dispatch-batch-size: 100
@@ -46,8 +48,20 @@ webhooks:
     lease: 45s
     consumers: 2
     max-concurrent-deliveries: 50
+    # Of those 50, how many may go to the same endpoint. A slow endpoint then cannot take every slot.
+    max-concurrent-per-endpoint: 5
+    defer-delay: 2s
     connect-timeout: 5s
     delivery-timeout: 15s
+  rate-limit:
+    # postgres: one bucket per tenant shared by every API instance. memory: per-instance, no database round trip.
+    store: postgres
+  breaker:
+    failure-threshold: 50
+    failing-for: 24h
+    # Pending deliveries of an endpoint that stays switched off this long are cancelled.
+    cancel-after: 7d
+    sweep-interval: 1h
   queue:
     name: webhook-deliveries
     region: ${AWS_REGION:us-east-1}

@@ -52,6 +52,11 @@ class RetryPolicyTest {
 	}
 
 	@Test
+	void goneEndsTheDeliveryAtOnce() {
+		assertThat(policy.decide(1, new HttpFailure(410, null, null), NOW)).isEqualTo(new GiveUp());
+	}
+
+	@Test
 	void theTenthFailureGivesUp() {
 		assertThat(policy.decide(RetryPolicy.MAX_ATTEMPTS, SERVER_ERROR, NOW)).isEqualTo(new GiveUp());
 	}

@@ -16,6 +16,7 @@
 	<properties>
 		<java.version>25</java.version>
 		<springdoc.version>3.1.1</springdoc.version>
+		<bucket4j.version>8.21.0</bucket4j.version>
 		<aws-sdk.version>2.55.12</aws-sdk.version>
 		<wiremock.version>3.13.2</wiremock.version>
 		<standard-webhooks.version>1.2.0</standard-webhooks.version>
@@ -76,6 +77,16 @@
 		<dependency>
 			<groupId>org.apache.httpcomponents.client5</groupId>
 			<artifactId>httpclient5</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.bucket4j</groupId>
+			<artifactId>bucket4j_jdk17-core</artifactId>
+			<version>${bucket4j.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.bucket4j</groupId>
+			<artifactId>bucket4j_jdk17-postgresql</artifactId>
+			<version>${bucket4j.version}</version>
 		</dependency>
 
 		<dependency>

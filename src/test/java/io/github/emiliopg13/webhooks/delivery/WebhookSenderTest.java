@@ -10,10 +10,12 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -21,12 +23,17 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import org.apache.hc.client5.http.DnsResolver;
+import org.apache.hc.client5.http.SystemDefaultDnsResolver;
+
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 
 import io.github.emiliopg13.webhooks.delivery.DeliveryOutcome.HttpFailure;
 import io.github.emiliopg13.webhooks.delivery.DeliveryOutcome.NetworkFailure;
 import io.github.emiliopg13.webhooks.delivery.DeliveryOutcome.Success;
+import io.github.emiliopg13.webhooks.security.FakeDns;
+import io.github.emiliopg13.webhooks.security.GuardedDnsResolver;
 
 /** The HTTP step on its own, against a receiver that misbehaves on purpose. No database, no Spring. */
 class WebhookSenderTest {
@@ -41,10 +48,15 @@ class WebhookSenderTest {
 		.options(wireMockConfig().dynamicPort().dynamicHttpsPort())
 		.build();
 
-	// Short deadlines keep the timeout tests quick; the production values are 5 s and 15 s.
-	private final WebhookSender sender = new WebhookSender(new WorkerProperties(Duration.ofSeconds(1), 100,
-			Duration.ofSeconds(30), Duration.ofMinutes(2), Duration.ofSeconds(45), 2, 10, Duration.ofSeconds(1),
-			Duration.ofSeconds(1)), Clock.systemUTC());
+	private final WebhookSender sender = senderBehind(SystemDefaultDnsResolver.INSTANCE);
+
+	/** Short deadlines keep the timeout tests quick; the production values are 5 s and 15 s. */
+	private static WebhookSender senderBehind(DnsResolver dnsResolver) {
+		return new WebhookSender(new WorkerProperties(Duration.ofSeconds(1), 100, Duration.ofSeconds(30),
+				Duration.ofMinutes(2), Duration.ofSeconds(45), 2, 10, 5, Duration.ofSeconds(2), Duration.ofSeconds(1),
+				Duration.ofSeconds(1)),
+				Clock.systemUTC(), dnsResolver);
+	}
 
 	/** The extension's own {@code url()} answers with https once an https port is enabled. */
 	private static String httpUrl(String path) {
@@ -95,6 +107,47 @@ class WebhookSenderTest {
 		assertThat(outcome).isInstanceOf(HttpFailure.class);
 		assertThat(outcome.statusCode()).isEqualTo(301);
 		assertThat(receiver.getAllServeEvents()).hasSize(1);
+	}
+
+	@Test
+	void theGuardRefusesALoopbackReceiverAndNothingIsSent() {
+		receiver.stubFor(post("/guarded").willReturn(aResponse().withStatus(200)));
+		WebhookSender guarded = senderBehind(new GuardedDnsResolver(SystemDefaultDnsResolver.INSTANCE));
+		try {
+			// The receiver listens on loopback, named by host name and then written as an IP address.
+			for (String host : new String[] { "localhost", "127.0.0.1" }) {
+				DeliveryOutcome outcome = guarded.post("http://" + host + ":" + receiver.getPort() + "/guarded", HEADERS,
+						BODY);
+
+				assertThat(outcome).as(host).isInstanceOf(NetworkFailure.class);
+				assertThat(outcome.errorKind()).as(host).isEqualTo(ErrorKind.BLOCKED_DESTINATION);
+				assertThat(outcome.fatalReason()).as(host).isEqualTo("blocked_destination");
+			}
+			assertThat(receiver.findAll(postRequestedFor(urlEqualTo("/guarded")))).isEmpty();
+		}
+		finally {
+			guarded.close();
+		}
+	}
+
+	/** The failure matrix's DNS rebinding row: a public address when the endpoint was registered, loopback now. */
+	@Test
+	void dnsRebindingIsStoppedAtDeliveryTime() throws Exception {
+		receiver.stubFor(post("/rebind").willReturn(aResponse().withStatus(200)));
+		AtomicInteger lookups = new AtomicInteger();
+		GuardedDnsResolver guard = new GuardedDnsResolver(FakeDns
+			.of(host -> new InetAddress[] { lookups.getAndIncrement() == 0 ? FakeDns.ip(93, 184, 216, 34) : FakeDns.ip(127, 0, 0, 1) }));
+		assertThat(guard.resolve("rebind.test")).hasSize(1);
+		WebhookSender guarded = senderBehind(guard);
+		try {
+			DeliveryOutcome outcome = guarded.post("http://rebind.test:" + receiver.getPort() + "/rebind", HEADERS, BODY);
+
+			assertThat(outcome.errorKind()).isEqualTo(ErrorKind.BLOCKED_DESTINATION);
+			assertThat(receiver.findAll(postRequestedFor(urlEqualTo("/rebind")))).isEmpty();
+		}
+		finally {
+			guarded.close();
+		}
 	}
 
 	@Test

@@ -53,10 +53,19 @@ public abstract class IntegrationTest {
 	protected int port;
 
 	protected TestTenant createTenant() throws Exception {
+		return createTenant("{\"name\":\"tenant-" + UUID.randomUUID() + "\"}");
+	}
+
+	/** A tenant allowed to publish only {@code publishRatePerMin} events per minute. */
+	protected TestTenant createTenant(int publishRatePerMin) throws Exception {
+		return createTenant("{\"name\":\"tenant-" + UUID.randomUUID() + "\",\"publish_rate_per_min\":" + publishRatePerMin + "}");
+	}
+
+	private TestTenant createTenant(String requestBody) throws Exception {
 		String response = mvc
 			.perform(post("/admin/tenants").header(AUTHORIZATION, "Bearer " + ADMIN_TOKEN)
 				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"name\":\"tenant-" + UUID.randomUUID() + "\"}"))
+				.content(requestBody))
 			.andExpect(status().isCreated())
 			.andReturn()
 			.getResponse()
