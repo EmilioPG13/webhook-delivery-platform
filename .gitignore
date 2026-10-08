@@ -38,3 +38,6 @@ claude.md
 playground
 HELP.md
 .env
+
+### graphify (derived from the code; regenerate with `graphify update .`) ###
+graphify-out/
