@@ -1,0 +1,11 @@
+# Local development only. These values are public on purpose; never reuse them anywhere else.
+server:
+  port: 8081  # 8080 is often taken by other desktop software
+
+webhooks:
+  admin:
+    token: dev-admin-token
+  secrets:
+    master-key: ZGV2LW9ubHktbWFzdGVyLWtleS0zMi1ieXRlcyEhISE=
+  endpoints:
+    allow-insecure-http: true

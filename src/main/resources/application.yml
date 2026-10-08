@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: webhooks
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5433/webhooks}
+    username: ${DATABASE_USER:webhooks}
+    password: ${DATABASE_PASSWORD:webhooks}
+  threads:
+    virtual:
+      enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the entities match it.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+webhooks:
+  admin:
+    # Empty disables /admin/**: no token, no operator access.
+    token: ${WEBHOOKS_ADMIN_TOKEN:}
+  secrets:
+    # Base64 of 32 random bytes. Required: the app refuses to start without it.
+    master-key: ${WEBHOOKS_MASTER_KEY:}
+    key-version: 1
+  endpoints:
+    allow-insecure-http: false

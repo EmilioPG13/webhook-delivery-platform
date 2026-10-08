@@ -1,0 +1,7 @@
+webhooks:
+  admin:
+    token: test-admin-token
+  secrets:
+    master-key: dGVzdC1vbmx5LW1hc3Rlci1rZXktMzItYnl0ZXMhISE=
+  endpoints:
+    allow-insecure-http: false
