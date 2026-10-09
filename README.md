@@ -121,6 +121,11 @@ Metric labels are few and bounded on purpose (`outcome`, `error_kind`, `reason`)
 would create a time series per id. A test fails if one appears. The scrape path `/actuator/prometheus` answers only
 to the operator token.
 
+![The dashboard during a k6 run: 240 events per second published and delivered to a slow receiver, about 300 deliveries in flight](observability/dashboard.png)
+
+The dashboard during a k6 run of 240 events per second against a slow receiver (median 800 ms), with the worker
+allowed 1,000 deliveries in flight. k6, the application and the receiver shared one machine.
+
 Load scenarios with k6 live in [load/](load/README.md).
 
 ## Tests
@@ -136,7 +141,7 @@ The rate limiter benchmark behind ADR 2 is not part of `verify`; run it with
 
 Measured with k6 on one machine that also ran the application, the database and the receiver: AMD Ryzen 7 5700X
 (8 cores), 31.9 GB, Windows 11, Docker Desktop. That makes every absolute figure a lower bound. Three runs per row,
-range shown, 2026-10-08, commit `a96b869` plus the Phase 4 working tree (to be replaced by the Phase 4 commit). Every run,
+range shown, 2026-10-08, commit `25b907e`, with one exception noted in the setup of load/RESULTS.md. Every run,
 the setup and the caveats are in [load/RESULTS.md](load/RESULTS.md).
 
 | Scenario | Metric | Result (3 runs) |

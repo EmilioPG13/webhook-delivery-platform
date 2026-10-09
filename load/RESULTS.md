@@ -10,8 +10,8 @@ scenario, one value per run, in run order.
 - **Everything shares that machine:** k6, the API, the worker, PostgreSQL 18, ElasticMQ, the WireMock receiver,
   Prometheus and Grafana. The load generator competes with the application for CPU, so absolute figures are
   lower bounds, and the comparison between two configurations is the part to trust.
-- **Code:** commit `a96b869` plus the uncommitted Phase 4 changes (metrics, consumer slots, `virtual-threads` setting),
-  2026-10-08. Settings are the application's defaults unless a scenario says otherwise: Java 25, virtual threads,
+- **Code:** commit `25b907e`, 2026-10-08. The runs were made on that tree before it was committed, except the
+  `c-before-fix` runs, which used the consumer loop of commit `a96b869` (copied back in for the comparison). Settings are the application's defaults unless a scenario says otherwise: Java 25, virtual threads,
   2 consumer loops, 50 deliveries in flight, 5 per endpoint, 1 s dispatch interval, database pool of 10 per role,
   rate limiter in PostgreSQL.
 - **Workload:** one tenant (the worst case for the rate limiter, which keeps one row per tenant), events spread over
