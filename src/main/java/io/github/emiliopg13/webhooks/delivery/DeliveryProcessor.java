@@ -57,9 +57,11 @@ class DeliveryProcessor {
 
 	private final JsonMapper json;
 
+	private final DeliveryMetrics metrics;
+
 	DeliveryProcessor(DeliveryWorkRepository work, EndpointSecretCipher cipher, WebhookSender sender,
 			RetryPolicy retryPolicy, AttemptRecorder recorder, EndpointConcurrencyLimiter endpointLimiter,
-			DeliveryQueue queue, WorkerProperties properties, Clock clock, JsonMapper json) {
+			DeliveryQueue queue, WorkerProperties properties, Clock clock, JsonMapper json, DeliveryMetrics metrics) {
 		this.work = work;
 		this.cipher = cipher;
 		this.sender = sender;
@@ -70,6 +72,7 @@ class DeliveryProcessor {
 		this.properties = properties;
 		this.clock = clock;
 		this.json = json;
+		this.metrics = metrics;
 	}
 
 	/**
@@ -91,6 +94,7 @@ class DeliveryProcessor {
 			// The endpoint already has its share in flight. Put the delivery back for a moment instead of waiting
 			// here: waiting would hold a global slot and the lease while a slow endpoint drags on.
 			work.deferClaimed(deliveryId, claimedAt.plus(properties.deferDelay()), clock.instant());
+			metrics.deferred();
 			queue.delete(message);
 			return;
 		}

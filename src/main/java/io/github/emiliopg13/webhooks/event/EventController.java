@@ -29,6 +29,8 @@ import io.github.emiliopg13.webhooks.event.EventPublishService.PublishResult;
 import io.github.emiliopg13.webhooks.event.EventRepository.Stored;
 import io.github.emiliopg13.webhooks.ratelimit.PublishRateLimiter;
 import io.github.emiliopg13.webhooks.tenant.TenantPrincipal;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -76,13 +78,18 @@ class EventController {
 
 	private final PublishRateLimiter rateLimiter;
 
+	private final Counter rateLimited;
+
 	EventController(EventPublishService publishService, EventRepository events, JsonMapper jsonMapper,
-			Validator validator, PublishRateLimiter rateLimiter) {
+			Validator validator, PublishRateLimiter rateLimiter, MeterRegistry meters) {
 		this.publishService = publishService;
 		this.events = events;
 		this.jsonMapper = jsonMapper;
 		this.validator = validator;
 		this.rateLimiter = rateLimiter;
+		this.rateLimited = Counter.builder("webhooks.publish.rate.limited")
+			.description("Publish requests answered 429 because the tenant exceeded its rate")
+			.register(meters);
 	}
 
 	/**
@@ -106,6 +113,7 @@ class EventController {
 		// First, before any parsing or database work: a rejected request should cost as little as possible.
 		PublishRateLimiter.Verdict verdict = rateLimiter.tryAcquire(tenant.tenantId(), tenant.publishRatePerMin());
 		if (!verdict.admitted()) {
+			rateLimited.increment();
 			throw ApiException.tooManyRequests("Publish rate limit exceeded. Retry after " + verdict.retryAfterSeconds()
 					+ " seconds.", verdict.retryAfterSeconds());
 		}

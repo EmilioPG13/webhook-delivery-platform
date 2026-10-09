@@ -11,8 +11,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 /**
- * Two stateless chains. {@code /admin/**} accepts only the operator token; everything else needs a tenant API
- * key except the few public paths. The filters are created here rather than declared as beans, because a
+ * Two stateless chains. {@code /admin/**} and the metrics scrape path accept only the operator token (Prometheus
+ * sends it as a bearer token); everything else needs a tenant API key except the few public paths. The filters are created here rather than declared as beans, because a
  * {@code Filter} bean would also be registered with the servlet container and run twice.
  */
 @Configuration(proxyBeanMethods = false)
@@ -31,7 +31,7 @@ class SecurityConfig {
 	@Order(1)
 	SecurityFilterChain adminSecurity(HttpSecurity http, AdminProperties admin, ProblemSecurityHandler problems)
 			throws Exception {
-		http.securityMatcher("/admin/**")
+		http.securityMatcher("/admin/**", "/actuator/prometheus")
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(requests -> requests.anyRequest().hasRole("ADMIN"))

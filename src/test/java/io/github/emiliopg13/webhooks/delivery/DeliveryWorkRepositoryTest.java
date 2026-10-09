@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -94,6 +95,32 @@ class DeliveryWorkRepositoryTest extends IntegrationTest {
 		assertThat(second).hasSize(3);
 		assertThat(work.markDueAsEnqueued(later(), 3)).isEmpty();
 		assertThat(new HashSet<>(first)).doesNotContainAnyElementsOf(second);
+	}
+
+	@Test
+	void backlogCountsDueDeliveriesAndMeasuresTheWaitOfTheOldest() {
+		// PostgreSQL keeps microseconds; a finer 'now' would make the 90 seconds come back a few nanoseconds short.
+		Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		List<UUID> deliveries = insertDeliveries(3);
+		setNextAttempt(deliveries.get(0), now.minusSeconds(90));
+		setNextAttempt(deliveries.get(1), now.minusSeconds(10));
+		setNextAttempt(deliveries.get(2), now.plusSeconds(60));
+
+		DeliveryWorkRepository.Backlog backlog = work.backlog(now);
+
+		// The one scheduled for later is not waiting yet, and the original delivery from setUp is also due.
+		assertThat(backlog.due()).isEqualTo(3);
+		assertThat(backlog.oldestWait()).isGreaterThanOrEqualTo(Duration.ofSeconds(90));
+	}
+
+	@Test
+	void backlogIgnoresDeliveriesOfSwitchedOffEndpointsAndIsZeroWhenNothingIsDue() {
+		jdbc.sql("UPDATE endpoints SET active = false WHERE id = :id").param("id", endpointId).update();
+
+		DeliveryWorkRepository.Backlog backlog = work.backlog(Instant.now().plusSeconds(60));
+
+		assertThat(backlog.due()).isZero();
+		assertThat(backlog.oldestWait()).isEqualTo(Duration.ZERO);
 	}
 
 	@Test
@@ -261,6 +288,13 @@ class DeliveryWorkRepositoryTest extends IntegrationTest {
 	}
 
 	/** Bulk-inserts pending deliveries for the event and endpoint of setUp. */
+	private void setNextAttempt(UUID delivery, Instant at) {
+		jdbc.sql("UPDATE deliveries SET next_attempt_at = :at WHERE id = :id")
+			.param("at", Db.timestamp(at))
+			.param("id", delivery)
+			.update();
+	}
+
 	private List<UUID> insertDeliveries(int count) {
 		return jdbc.sql("""
 				INSERT INTO deliveries (tenant_id, event_id, endpoint_id)

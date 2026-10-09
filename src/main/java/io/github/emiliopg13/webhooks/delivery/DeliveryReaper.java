@@ -25,10 +25,13 @@ class DeliveryReaper {
 
 	private final Clock clock;
 
-	DeliveryReaper(DeliveryWorkRepository work, WorkerProperties properties, Clock clock) {
+	private final DeliveryMetrics metrics;
+
+	DeliveryReaper(DeliveryWorkRepository work, WorkerProperties properties, Clock clock, DeliveryMetrics metrics) {
 		this.work = work;
 		this.properties = properties;
 		this.clock = clock;
+		this.metrics = metrics;
 	}
 
 	@Scheduled(fixedDelayString = "${webhooks.worker.reaper-interval}")
@@ -36,6 +39,7 @@ class DeliveryReaper {
 		Instant now = clock.instant();
 		int returned = work.returnStuckToPending(now, now.minus(properties.stuckAfter()));
 		if (returned > 0) {
+			metrics.reaped(returned);
 			log.warn("Returned {} stuck deliveries to pending", returned);
 		}
 	}

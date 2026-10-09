@@ -1,0 +1,8 @@
+{
+  "request": { "method": "POST", "urlPath": "/slow" },
+  "response": {
+    "status": 200,
+    "body": "received",
+    "delayDistribution": { "type": "lognormal", "median": 800, "sigma": 0.4 }
+  }
+}

@@ -1,0 +1,17 @@
+# Scrapes the API and the worker of the compose stack. The token is the public throwaway admin token from
+# compose.yaml; /actuator/prometheus answers only to the operator token.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: webhooks
+    metrics_path: /actuator/prometheus
+    authorization:
+      credentials: dev-admin-token
+    static_configs:
+      - targets: ["api:8080"]
+        labels:
+          role: api
+      - targets: ["worker:8080"]
+        labels:
+          role: worker

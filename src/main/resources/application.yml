@@ -24,7 +24,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus answers only to the operator token (see SecurityConfig).
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      # Fixed buckets instead of a full percentile histogram: enough to read p95 in Grafana, a fraction of the series.
+      slo:
+        http.server.requests: 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1s,2500ms
 
 webhooks:
   admin:
@@ -50,6 +56,8 @@ webhooks:
     max-concurrent-deliveries: 50
     # Of those 50, how many may go to the same endpoint. A slow endpoint then cannot take every slot.
     max-concurrent-per-endpoint: 5
+    # false = a fixed pool of platform threads instead; only there to compare the two under load.
+    virtual-threads: true
     defer-delay: 2s
     connect-timeout: 5s
     delivery-timeout: 15s

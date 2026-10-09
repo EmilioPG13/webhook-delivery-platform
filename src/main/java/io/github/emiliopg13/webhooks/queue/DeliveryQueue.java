@@ -25,6 +25,13 @@ public interface DeliveryQueue {
 	/** Long polls for up to {@code maxWait}. Returns at most {@code max} messages, none if the wait passed empty. */
 	List<Message> receive(int max, Duration maxWait);
 
+	/** What the queue holds right now. Counts are approximate: SQS documents them as such. */
+	record Depth(long waiting, long inFlight) {
+	}
+
+	/** For observability only; nothing in the delivery path depends on it. */
+	Depth depth();
+
 	/** Removes a processed message. Without it the message reappears once its visibility timeout runs out. */
 	void delete(Message message);
 

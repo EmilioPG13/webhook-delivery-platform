@@ -3,10 +3,10 @@ package io.github.emiliopg13.webhooks.delivery;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -21,7 +21,11 @@ import io.github.emiliopg13.webhooks.queue.DeliveryQueue.Message;
 /**
  * Reads the queue with a few long-polling loops and hands every message to {@link DeliveryProcessor} on its own
  * virtual thread. Waiting for a slow receiver is cheap on a virtual thread, so one worker can have many
- * deliveries in flight; the processor's concurrency limit keeps that number sane.
+ * deliveries in flight.
+ *
+ * <p>A loop reads only as many messages as there are free delivery slots, and never waits for the others of its
+ * batch: one slow receiver must not hold back nine fast ones. Reading only into a free slot also means a message
+ * never sits received, with its visibility timeout running, waiting for its turn.
  *
  * <p>Stopping is graceful: the loops stop reading, and deliveries already started are given time to finish.
  */
@@ -50,20 +54,29 @@ class DeliveryConsumer implements SmartLifecycle {
 
 	private volatile boolean running;
 
+	/** One permit per delivery this worker may have in flight. */
+	private final Semaphore slots;
+
 	DeliveryConsumer(DeliveryQueue queue, DeliveryProcessor processor, WorkerProperties properties) {
 		this.queue = queue;
 		this.processor = processor;
 		this.properties = properties;
+		this.slots = new Semaphore(properties.maxConcurrentDeliveries());
 	}
 
 	@Override
 	public synchronized void start() {
 		running = true;
-		handlers = Executors.newVirtualThreadPerTaskExecutor();
+		boolean virtual = properties.virtualThreads();
+		handlers = virtual ? Executors.newVirtualThreadPerTaskExecutor()
+				: Executors.newFixedThreadPool(properties.maxConcurrentDeliveries(),
+						Thread.ofPlatform().name("delivery-", 0).factory());
 		for (int i = 0; i < properties.consumers(); i++) {
-			loops.add(Thread.ofVirtual().name("delivery-consumer-" + i).start(this::pollLoop));
+			Thread.Builder builder = virtual ? Thread.ofVirtual() : Thread.ofPlatform();
+			loops.add(builder.name("delivery-consumer-" + i).start(this::pollLoop));
 		}
-		log.info("Started {} delivery consumers", properties.consumers());
+		log.info("Started {} delivery consumers on {} threads", properties.consumers(),
+				virtual ? "virtual" : "platform");
 	}
 
 	@Override
@@ -93,30 +106,56 @@ class DeliveryConsumer implements SmartLifecycle {
 
 	private void pollLoop() {
 		while (running) {
+			int granted = 0;
 			try {
-				List<Message> messages = queue.receive(DeliveryQueue.MAX_BATCH, POLL_WAIT);
-				List<Future<?>> inFlight = new ArrayList<>();
+				granted = acquireSlots();
+				List<Message> messages = queue.receive(granted, POLL_WAIT);
+				// Slots the poll did not fill go back at once; the others come back as their deliveries finish.
+				slots.release(granted - messages.size());
+				granted = 0;
 				for (Message message : messages) {
-					inFlight.add(handlers.submit(() -> handle(message)));
-				}
-				for (Future<?> future : inFlight) {
-					future.get();
+					submit(message);
 				}
 			}
 			catch (InterruptedException ex) {
+				slots.release(granted);
 				return;
 			}
-			catch (ExecutionException ex) {
-				// handle() catches everything; this is not expected.
-				log.error("Delivery task failed", ex.getCause());
-			}
 			catch (RuntimeException ex) {
+				slots.release(granted);
 				if (!running) {
 					return;
 				}
 				log.error("Cannot read the delivery queue; retrying in {}", ERROR_BACKOFF, ex);
 				pause(ERROR_BACKOFF);
 			}
+		}
+	}
+
+	/** Waits for one free slot, then takes as many more as are free right now, up to one queue batch. */
+	private int acquireSlots() throws InterruptedException {
+		slots.acquire();
+		int granted = 1;
+		while (granted < DeliveryQueue.MAX_BATCH && slots.tryAcquire()) {
+			granted++;
+		}
+		return granted;
+	}
+
+	private void submit(Message message) {
+		try {
+			handlers.execute(() -> {
+				try {
+					handle(message);
+				}
+				finally {
+					slots.release();
+				}
+			});
+		}
+		catch (RejectedExecutionException ex) {
+			// Stopping. The message is not deleted, so it reappears and another worker takes it.
+			slots.release();
 		}
 	}
 

@@ -26,10 +26,14 @@ class DisabledEndpointSweeper {
 
 	private final Clock clock;
 
-	DisabledEndpointSweeper(DeliveryWorkRepository work, BreakerProperties properties, Clock clock) {
+	private final DeliveryMetrics metrics;
+
+	DisabledEndpointSweeper(DeliveryWorkRepository work, BreakerProperties properties, Clock clock,
+			DeliveryMetrics metrics) {
 		this.work = work;
 		this.properties = properties;
 		this.clock = clock;
+		this.metrics = metrics;
 	}
 
 	@Scheduled(fixedDelayString = "${webhooks.breaker.sweep-interval}")
@@ -37,6 +41,7 @@ class DisabledEndpointSweeper {
 		Instant now = clock.instant();
 		int cancelled = work.cancelPendingOfLongDisabledEndpoints(now, now.minus(properties.cancelAfter()));
 		if (cancelled > 0) {
+			metrics.cancelled(cancelled);
 			log.warn("Cancelled {} pending deliveries of endpoints that stayed disabled", cancelled);
 		}
 	}

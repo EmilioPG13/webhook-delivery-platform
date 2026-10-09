@@ -54,7 +54,7 @@ class WebhookSenderTest {
 	private static WebhookSender senderBehind(DnsResolver dnsResolver) {
 		return new WebhookSender(new WorkerProperties(Duration.ofSeconds(1), 100, Duration.ofSeconds(30),
 				Duration.ofMinutes(2), Duration.ofSeconds(45), 2, 10, 5, Duration.ofSeconds(2), Duration.ofSeconds(1),
-				Duration.ofSeconds(1)),
+				Duration.ofSeconds(1), true),
 				Clock.systemUTC(), dnsResolver);
 	}
 

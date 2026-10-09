@@ -1,0 +1,66 @@
+﻿run:        g-memory-800-1
+commit:     a96b869 +uncommitted changes
+when:       2026-10-08 21:06:07 local
+settings:   rate=800/s duration=60s receiver=/ok endpoints=20 p95_threshold=200ms
+worker env: virtual_threads= max_concurrent= breaker=/
+publishing: 62 s, drain: 5 s, drained=True
+endpoints disabled during the run: 0 (first 0 s, last 0 s after the start)
+
+--- peaks seen by Prometheus during the run (window 77s) ---
+due deliveries (max):          607
+oldest due age s (max):        0.756
+queue messages (max, by state): 50 / 1092
+hikari active (max, by role):  10 / 9
+hikari pending (max, by role): 36 / 2
+process cpu (max, by role):    0.32095730918499354 / 0.30361445783132535
+attempts by outcome (increase): 49535.27178461538
+live threads (max, by role):   36 / 34
+heap used MiB (max, by role):  94 / 70
+
+--- postgres report ---
+ deliveries | delivered | still_waiting | lag_p50_s | lag_p95_s | lag_p99_s | first_publish_to_last_attempt_s | delivered_per_s 
+------------+-----------+---------------+-----------+-----------+-----------+---------------------------------+-----------------
+      47954 |     47954 |             0 |     0.772 |     1.829 |     1.936 |                            63.3 |           757.3
+(1 row)
+
+
+--- k6 ---
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<200' p(95)=18.41ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 47954   794.703323/s
+    checks_succeeded...: 100.00% 47954 out of 47954
+    checks_failed......: 0.00%   0 out of 47954
+
+    ✓ accepted
+
+    HTTP
+    http_req_duration..............: avg=7.16ms min=2.15ms med=4.1ms  max=285.3ms  p(90)=9.2ms  p(95)=18.41ms
+      { expected_response:true }...: avg=7.16ms min=2.15ms med=4.1ms  max=285.3ms  p(90)=9.2ms  p(95)=18.41ms
+    http_req_failed................: 0.00% 0 out of 47975
+    http_reqs......................: 47975 795.05134/s
+
+    EXECUTION
+    dropped_iterations.............: 47    0.778893/s
+    iteration_duration.............: avg=7.29ms min=2.23ms med=4.24ms max=285.46ms p(90)=9.39ms p(95)=18.58ms
+    iterations.....................: 47954 794.703323/s
+    vus............................: 3     min=1          max=69
+    vus_max........................: 84    min=57         max=84
+
+    NETWORK
+    data_received..................: 23 MB 377 kB/s
+    data_sent......................: 12 MB 193 kB/s
+
+
+
+

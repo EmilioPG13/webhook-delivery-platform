@@ -1,5 +1,6 @@
 package io.github.emiliopg13.webhooks.delivery;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -115,6 +116,30 @@ class DeliveryWorkRepository {
 			.update();
 	}
 
+	/** How far behind the dispatcher is: deliveries whose time has come, and how long the oldest has waited. */
+	record Backlog(long due, Duration oldestWait) {
+	}
+
+	/**
+	 * Observability: the deliveries that are due but not yet handed to the queue. A healthy system keeps this near
+	 * zero; a growing number, or an old oldest one, means the dispatcher or the endpoints cannot keep up. Disabled
+	 * endpoints are left out, because their deliveries are not waiting for capacity but for their owner.
+	 */
+	Backlog backlog(Instant now) {
+		return jdbc.sql("""
+				SELECT count(*) AS due, min(d.next_attempt_at) AS oldest
+				FROM deliveries d
+				JOIN endpoints e ON e.id = d.endpoint_id
+				WHERE d.status = 'pending' AND d.next_attempt_at <= :now AND e.active
+				""")
+			.param("now", Db.timestamp(now))
+			.query((rs, rowNum) -> {
+				Instant oldest = Db.instant(rs, "oldest");
+				return new Backlog(rs.getLong("due"), oldest == null ? Duration.ZERO : Duration.between(oldest, now));
+			})
+			.single();
+	}
+
 	/**
 	 * Reaper: gives deliveries stuck in {@code enqueued} back to {@code pending}. Covers a crash between marking
 	 * and sending, a lost SQS message, and a worker that died holding a lease. A live lease protects a delivery
@@ -200,8 +225,8 @@ class DeliveryWorkRepository {
 	 * Runs right after {@link #recordEndpointFailure}, in the same transaction, so it sees the streak that failure
 	 * just extended. An endpoint that is already off, deleted ones included, keeps its original reason.
 	 */
-	void disableEndpointIfFailing(UUID endpointId, int failureThreshold, Instant failingSinceAtLatest, Instant now) {
-		jdbc.sql("""
+	int disableEndpointIfFailing(UUID endpointId, int failureThreshold, Instant failingSinceAtLatest, Instant now) {
+		return jdbc.sql("""
 				UPDATE endpoints
 				SET active = false, disabled_reason = 'failing', disabled_at = :now
 				WHERE id = :id AND active
@@ -214,9 +239,13 @@ class DeliveryWorkRepository {
 			.update();
 	}
 
-	/** Switches the endpoint off for a reason that needs no streak, such as a 410 Gone. */
-	void disableEndpoint(UUID endpointId, String reason, Instant now) {
-		jdbc.sql("""
+	/**
+	 * Switches the endpoint off for a reason that needs no streak, such as a 410 Gone.
+	 *
+	 * @return 1 if this call switched it off, 0 if it already was
+	 */
+	int disableEndpoint(UUID endpointId, String reason, Instant now) {
+		return jdbc.sql("""
 				UPDATE endpoints
 				SET active = false, disabled_reason = :reason, disabled_at = :now
 				WHERE id = :id AND active

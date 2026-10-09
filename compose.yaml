@@ -32,7 +32,9 @@ services:
   # endpoint and watch what arrives at http://localhost:8090/__admin/requests
   receiver:
     image: wiremock/wiremock:3.13.2
-    command: ["--verbose"]
+    # Enough threads that a slow answer (the /slow stub) never queues inside the receiver, which would hide the
+    # platform behind it. Request logging off and the journal capped: both cost time and memory under load.
+    command: ["--container-threads", "1000", "--disable-request-logging", "--max-request-journal-entries", "1000"]
     volumes:
       - ./load/receiver:/home/wiremock:ro
     ports:
@@ -54,6 +56,8 @@ services:
       WEBHOOKS_ENDPOINTS_ALLOW_INSECURE_HTTP: "true"
       # ... and sits on the compose network, a private address the SSRF guard would refuse. Production keeps this false.
       WEBHOOKS_ENDPOINTS_ALLOW_PRIVATE_DESTINATIONS: "true"
+      # postgres or memory; the load scenarios compare the two (see load/README.md).
+      WEBHOOKS_RATE_LIMIT_STORE: ${RATE_LIMIT_STORE:-postgres}
       WEBHOOKS_QUEUE_ENDPOINT: http://elasticmq:9324
       WEBHOOKS_QUEUE_CREATE_IF_MISSING: "true"
     ports:
@@ -70,7 +74,49 @@ services:
     environment:
       <<: *app-env
       SPRING_PROFILES_ACTIVE: worker
+      # Knobs the load scenarios turn (see load/README.md). The defaults are the application's own.
+      WEBHOOKS_WORKER_VIRTUAL_THREADS: ${WORKER_VIRTUAL_THREADS:-true}
+      WEBHOOKS_WORKER_MAX_CONCURRENT_DELIVERIES: ${WORKER_MAX_CONCURRENT_DELIVERIES:-50}
+      WEBHOOKS_BREAKER_FAILURE_THRESHOLD: ${BREAKER_FAILURE_THRESHOLD:-50}
+      WEBHOOKS_BREAKER_FAILING_FOR: ${BREAKER_FAILING_FOR:-24h}
     ports: []
+
+  # The load generator. Not started by `up`: docker compose run --rm k6 /load/publish.js
+  k6:
+    image: grafana/k6:1.3.0
+    profiles: [load]
+    entrypoint: ["k6", "run"]
+    volumes:
+      - ./load:/load:ro
+    depends_on:
+      - api
+
+  # Metrics: http://localhost:9090. Scrapes the api and worker every 5 seconds.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - worker
+
+  # The dashboard: http://localhost:3000, no login because the stack is local only. The datasource and the dashboard
+  # come from observability/, so a fresh start shows them without any clicking.
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/webhooks.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
 
 volumes:
   pgdata:

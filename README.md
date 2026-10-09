@@ -5,7 +5,8 @@ customers register. The point of the project is what happens when things go wron
 are down, slow, or hostile.
 
 **Status: under construction.** Events are accepted, signed, delivered with retries, and the main ways a
-receiver can misbehave are handled. Not yet deployed anywhere or load tested; the network-level
+receiver can misbehave are handled. Metrics, dashboards and load scripts exist and the first figures are
+measured (see Performance), but it is not deployed anywhere; the network-level
 defences described in [adr/0003-threat-model.md](adr/0003-threat-model.md) do not exist yet, so do not
 expose it to the internet.
 
@@ -109,6 +110,19 @@ A receiver that wants to trust what it gets should, in this order:
    protect against duplicates.
 4. Answer `2xx` once the event is safely stored; anything else is treated as a failure and retried.
 
+## Observability
+
+`docker compose up` also starts Prometheus (<http://localhost:9090>) and Grafana (<http://localhost:3000>, no
+login). The dashboard in [observability/](observability/grafana/dashboards/webhooks.json) shows publish and
+delivery rates, attempt duration, failures by cause, the backlog (how many deliveries are due and how long the oldest
+has waited, read from PostgreSQL), the queue depth, the database connection pool, CPU and heap.
+
+Metric labels are few and bounded on purpose (`outcome`, `error_kind`, `reason`): a tenant or endpoint id as a label
+would create a time series per id. A test fails if one appears. The scrape path `/actuator/prometheus` answers only
+to the operator token.
+
+Load scenarios with k6 live in [load/](load/README.md).
+
 ## Tests
 
 ```powershell
@@ -120,4 +134,19 @@ The rate limiter benchmark behind ADR 2 is not part of `verify`; run it with
 
 ## Performance
 
-To be measured.
+Measured with k6 on one machine that also ran the application, the database and the receiver: AMD Ryzen 7 5700X
+(8 cores), 31.9 GB, Windows 11, Docker Desktop. That makes every absolute figure a lower bound. Three runs per row,
+range shown, 2026-10-08, commit `a96b869` plus the Phase 4 working tree (to be replaced by the Phase 4 commit). Every run,
+the setup and the caveats are in [load/RESULTS.md](load/RESULTS.md).
+
+| Scenario | Metric | Result (3 runs) |
+|---|---|---|
+| Sustained publishing, healthy receiver | Highest rate tried with publish p95 under 200 ms | 400 events/s (p95 9.5 to 11.0 ms). At 800/s the PostgreSQL rate limiter fails (p95 1.4 to 1.5 s) |
+| Same, rate limiter in memory | Same | 800 events/s (p95 5.6 to 20.4 ms) |
+| Rate limiter in PostgreSQL against memory | Added mean publish latency at 400/s | about 2 ms (5.4 to 5.7 ms against 2.9 to 3.7 ms) |
+| Publish to first attempt, 250 events/s | p50 / p95 / p99 | 0.57 to 0.59 s / 1.00 s / 1.03 to 1.05 s (dominated by the 1 s dispatcher tick) |
+| Slow receiver (median 800 ms), 50 events/s | Deliveries per second before the consumer fix ([ADR 4](adr/0004-consumer-concurrency.md)) | 12.8 to 13.1 (drain 253 to 263 s after publishing) |
+| Same, after the fix | Deliveries per second | 47.1 to 47.9 (drain 5 to 8 s) |
+| Failure storm to `/fail500`, breaker shortened to 30 s | Time until every endpoint is switched off | 33 to 35 s after the start, 20 of 20 endpoints |
+| Virtual against platform threads, about 300 deliveries in flight | Deliveries per second | 226.9 to 230.2 against 229.3 to 231.2; worker threads 36 against about 1,036 |
+| Rolling update of the worker, image start time, clean clone to first delivery | | To be measured |

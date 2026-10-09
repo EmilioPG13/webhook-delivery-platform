@@ -92,6 +92,17 @@ class SqsDeliveryQueue implements DeliveryQueue {
 	}
 
 	@Override
+	public Depth depth() {
+		Map<QueueAttributeName, String> attributes = sqs
+			.getQueueAttributes(request -> request.queueUrl(queueUrl())
+				.attributeNames(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES,
+						QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE))
+			.attributes();
+		return new Depth(Long.parseLong(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES)),
+				Long.parseLong(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE)));
+	}
+
+	@Override
 	public void delete(Message message) {
 		sqs.deleteMessage(
 				DeleteMessageRequest.builder().queueUrl(queueUrl()).receiptHandle(message.receiptHandle()).build());

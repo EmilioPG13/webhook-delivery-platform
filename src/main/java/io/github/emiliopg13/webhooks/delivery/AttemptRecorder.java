@@ -21,9 +21,12 @@ class AttemptRecorder {
 
 	private final BreakerProperties breaker;
 
-	AttemptRecorder(DeliveryWorkRepository work, BreakerProperties breaker) {
+	private final DeliveryMetrics metrics;
+
+	AttemptRecorder(DeliveryWorkRepository work, BreakerProperties breaker, DeliveryMetrics metrics) {
 		this.work = work;
 		this.breaker = breaker;
+		this.metrics = metrics;
 	}
 
 	/**
@@ -59,13 +62,18 @@ class AttemptRecorder {
 			work.recordEndpointFailure(endpointId, now);
 			String fatalReason = outcome.fatalReason();
 			if (fatalReason != null) {
-				work.disableEndpoint(endpointId, fatalReason, now);
+				if (work.disableEndpoint(endpointId, fatalReason, now) == 1) {
+					metrics.endpointDisabled(fatalReason);
+				}
 			}
-			else {
-				work.disableEndpointIfFailing(endpointId, breaker.failureThreshold(), now.minus(breaker.failingFor()),
-						now);
+			else if (work.disableEndpointIfFailing(endpointId, breaker.failureThreshold(),
+					now.minus(breaker.failingFor()), now) == 1) {
+				metrics.endpointDisabled("failing");
 			}
 		}
+		// Counted before the commit, which can still fail; a metric that is off by one rare retry is cheaper than a
+		// synchronization hook on every attempt.
+		metrics.attempt(outcome, next, durationMs);
 		return true;
 	}
 

@@ -12,6 +12,7 @@ import io.github.emiliopg13.webhooks.common.ApiException;
 import io.github.emiliopg13.webhooks.delivery.DeliveryRepository;
 import io.github.emiliopg13.webhooks.event.EventRepository.Created;
 import io.github.emiliopg13.webhooks.event.EventRepository.Existing;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * Publishing is one short transaction: the event row and one delivery row per subscribed endpoint, or nothing.
@@ -27,9 +28,12 @@ class EventPublishService {
 
 	private final DeliveryRepository deliveries;
 
-	EventPublishService(EventRepository events, DeliveryRepository deliveries) {
+	private final MeterRegistry meters;
+
+	EventPublishService(EventRepository events, DeliveryRepository deliveries, MeterRegistry meters) {
 		this.events = events;
 		this.deliveries = deliveries;
+		this.meters = meters;
 	}
 
 	@Transactional
@@ -37,6 +41,8 @@ class EventPublishService {
 		Optional<Created> created = events.insertIfAbsent(tenantId, type, payloadJson, idempotencyKey, requestHash);
 		if (created.isPresent()) {
 			int fanOut = deliveries.fanOut(tenantId, created.get().id(), type);
+			// Counted before the commit, like the attempt metrics: a rollback here is a rare failure, not a flow.
+			meters.counter("webhooks.events.published", "result", "created").increment();
 			return new PublishResult(created.get().id(), type, created.get().createdAt(), fanOut, false);
 		}
 		// No row came back, so (tenant, idempotency key) already exists. Read it in a fresh statement: under
@@ -47,6 +53,7 @@ class EventPublishService {
 			throw ApiException.unprocessable("Idempotency-Key was already used with a different request body.");
 		}
 		int fanOut = deliveries.countOriginalsForEvent(tenantId, existing.id());
+		meters.counter("webhooks.events.published", "result", "replayed").increment();
 		return new PublishResult(existing.id(), existing.type(), existing.createdAt(), fanOut, true);
 	}
 

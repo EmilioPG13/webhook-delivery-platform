@@ -1,0 +1,65 @@
+﻿run:        d-storm-3
+commit:     a96b869 +uncommitted changes
+when:       2026-10-08 21:16:38 local
+settings:   rate=50/s duration=60s receiver=/fail500 endpoints=20 p95_threshold=200ms
+worker env: virtual_threads= max_concurrent= breaker=5/30s
+publishing: 62 s, drain: 90 s, drained=True
+endpoints disabled during the run: 20 (first 33 s, last 34 s after the start)
+
+--- peaks seen by Prometheus during the run (window 162s) ---
+due deliveries (max):          33
+oldest due age s (max):        0.65
+queue messages (max, by state): 0 / 0
+hikari active (max, by role):  0 / 0
+hikari pending (max, by role): 0 / 0
+process cpu (max, by role):    0.015529879488135171 / 0.021231686118698783
+attempts by outcome (increase): 1743.3852704925966
+live threads (max, by role):   36 / 33
+heap used MiB (max, by role):  84 / 64
+
+--- postgres report ---
+ deliveries | delivered | still_waiting | lag_p50_s | lag_p95_s | lag_p99_s | first_publish_to_last_attempt_s | delivered_per_s 
+------------+-----------+---------------+-----------+-----------+-----------+---------------------------------+-----------------
+       1574 |         0 |          1574 |     0.529 |     0.977 |     1.013 |                            32.3 |             0.0
+(1 row)
+
+
+--- k6 ---
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<200' p(95)=5.42ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 3001    49.947293/s
+    checks_succeeded...: 100.00% 3001 out of 3001
+    checks_failed......: 0.00%   0 out of 3001
+
+    ✓ accepted
+
+    HTTP
+    http_req_duration..............: avg=4.67ms min=3.06ms med=4.52ms max=17.38ms p(90)=5.13ms p(95)=5.42ms
+      { expected_response:true }...: avg=4.67ms min=3.06ms med=4.52ms max=17.38ms p(90)=5.13ms p(95)=5.42ms
+    http_req_failed................: 0.00%  0 out of 3022
+    http_reqs......................: 3022   50.296807/s
+
+    EXECUTION
+    iteration_duration.............: avg=4.83ms min=3.89ms med=4.65ms max=17.59ms p(90)=5.32ms p(95)=5.63ms
+    iterations.....................: 3001   49.947293/s
+    vus............................: 0      min=0         max=0 
+    vus_max........................: 50     min=50        max=50
+
+    NETWORK
+    data_received..................: 1.4 MB 24 kB/s
+    data_sent......................: 733 kB 12 kB/s
+
+
+
+

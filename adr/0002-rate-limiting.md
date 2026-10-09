@@ -65,8 +65,14 @@ What the numbers say:
 - A rejected request also costs a database round trip. A tenant that floods the API with requests it
   knows will be rejected keeps the limiter busy at up to the rates above, and can crowd the pool. A
   small in-memory check in front of the shared bucket would absorb that, at the cost of a second layer
-  to reason about. It is not built; if a load test (phase 4) shows the pool saturating under a flood, it
-  is the first thing to add.
+  to reason about. It is not built.
+- The Phase 4 load test (k6, `load/RESULTS.md`) measured the cost of saying yes under a real HTTP load, one hot
+  tenant publishing to a healthy receiver. PostgreSQL holds 400 publishes per second (p95 9.5 to 11.0 ms, about 2 ms
+  more than memory) and does not hold 800: p95 1.4 to 1.5 s, 516 to 549 accepted per second, and the API's
+  connection pool full of threads waiting on the tenant's bucket row. In memory the same 800 per second passes
+  (p95 5.6 to 20.4 ms). The in-memory layer in front of the bucket suggested above would not help this case: these
+  requests are admitted, not rejected. What would is taking tokens from the shared bucket in chunks, which is not
+  built because no honest tenant is near that rate (the default quota is 10 per second).
 - `memory` is the right setting for a single API instance, and for tests that do not care. It is wrong
   for a fleet.
 - A tenant's rate is applied when its bucket is first created. There is no API to change a rate yet; when
