@@ -25,3 +25,57 @@ jobs:
           cache: maven
       # The tests start PostgreSQL 18 with Testcontainers; the runner already has Docker.
       - run: ./mvnw -B verify
+
+  # Builds the image without publishing it, so a broken Dockerfile fails the pull request and not the first deploy.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --tag webhooks:ci .
+
+  # Formatting and syntax only. No credentials, no backend: this job cannot touch AWS.
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        directory: [infra/bootstrap, infra/demo]
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
+
+  # Publishes the image to ECR from main. The job proves its identity to AWS with a short-lived OIDC token, so the
+  # repository holds no AWS keys; the trust policy of the role accepts only this repository on main.
+  #
+  # Off until the repository variable ECR_PUBLISH is 'true': the AWS project this was built in forbids creating the
+  # OIDC provider (see infra/README.md), so the role does not exist and the job would fail on every push to main.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ECR_PUBLISH == 'true'
+    needs: [verify, image, terraform]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-2
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      # The repository is immutable: the tag is the commit, and it is never reused.
+      - run: |
+          image="${{ steps.ecr.outputs.registry }}/webhooks:${{ github.sha }}"
+          docker build --tag "$image" .
+          docker push "$image"

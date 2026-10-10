@@ -154,4 +154,5 @@ the setup and the caveats are in [load/RESULTS.md](load/RESULTS.md).
 | Same, after the fix | Deliveries per second | 47.1 to 47.9 (drain 5 to 8 s) |
 | Failure storm to `/fail500`, breaker shortened to 30 s | Time until every endpoint is switched off | 33 to 35 s after the start, 20 of 20 endpoints |
 | Virtual against platform threads, about 300 deliveries in flight | Deliveries per second | 226.9 to 230.2 against 229.3 to 231.2; worker threads 36 against about 1,036 |
+| Container image, on disk (`docker images`, 2026-10-09) | Size | 654 MB: the JRE base image is 490 MB, the application jar and curl for the healthcheck make up the rest |
 | Rolling update of the worker, image start time, clean clone to first delivery | | To be measured |

@@ -41,3 +41,11 @@ HELP.md
 
 ### graphify (derived from the code; regenerate with `graphify update .`) ###
 graphify-out/
+
+### Terraform (the lock file is committed, state and variable files are not) ###
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+backend.hcl
+tfplan
