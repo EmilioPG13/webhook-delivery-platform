@@ -1,0 +1,4 @@
+# Copy to backend.hcl (gitignored) in both infra/bootstrap and infra/demo.
+# The bucket is webhooks-tfstate-<account id>-<region>; `terraform output state_bucket` prints it.
+bucket = "webhooks-tfstate-123456789012-us-east-2"
+region = "us-east-2"
