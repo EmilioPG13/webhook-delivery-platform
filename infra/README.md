@@ -28,10 +28,13 @@ terraform init -migrate-state -backend-config=backend.hcl
 
 **GitHub OIDC is off (`enable_github_oidc = false`).** The service control policy of the AWS project this was built
 in explicitly denies `iam:CreateOpenIDConnectProvider`, so keyless publishing from GitHub Actions to ECR cannot work
-there. The configuration in `github_oidc.tf` stays for an account without that restriction: with the variable set to
+there. CI publishes the image to GitHub Container Registry instead (`ghcr.io/<owner>/<repo>`, tagged with the commit
+and `latest`), authenticated with the workflow's own token. The first push creates the package as private; make it
+public in the repository's package settings, or give the cluster an image pull secret.
+
+The configuration in `github_oidc.tf` stays for an account without that restriction: with the variable set to
 `true` it creates the `webhooks-ci` role, which trusts only this repository's `main` branch and may only push to the
-ECR repository, and the `publish` job of `ci.yml` runs once the repository variables `ECR_PUBLISH` (`true`) and
-`AWS_CI_ROLE_ARN` (`terraform output ci_role_arn`) are set.
+ECR repository. The ECR repository exists either way, for pushing by hand with temporary credentials.
 
 ## Demo, data part
 
