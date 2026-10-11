@@ -6,9 +6,9 @@ are down, slow, or hostile.
 
 **Status: under construction.** Events are accepted, signed, delivered with retries, and the main ways a
 receiver can misbehave are handled. Metrics, dashboards and load scripts exist and the first figures are
-measured (see Performance), but it is not deployed anywhere; the network-level
-defences described in [adr/0003-threat-model.md](adr/0003-threat-model.md) do not exist yet, so do not
-expose it to the internet.
+measured (see Performance). It runs on a local Kubernetes cluster from a Helm chart, with the network-level
+defence of [adr/0003-threat-model.md](adr/0003-threat-model.md) (a NetworkPolicy on the worker) checked there. It has not
+been deployed to a cloud yet (the Terraform for that is written, not applied), so do not expose it to the internet.
 
 ## What works today
 
@@ -155,4 +155,19 @@ the setup and the caveats are in [load/RESULTS.md](load/RESULTS.md).
 | Failure storm to `/fail500`, breaker shortened to 30 s | Time until every endpoint is switched off | 33 to 35 s after the start, 20 of 20 endpoints |
 | Virtual against platform threads, about 300 deliveries in flight | Deliveries per second | 226.9 to 230.2 against 229.3 to 231.2; worker threads 36 against about 1,036 |
 | Container image, on disk (`docker images`, 2026-10-09) | Size | 654 MB: the JRE base image is 490 MB, the application jar and curl for the healthcheck make up the rest |
-| Rolling update of the worker, image start time, clean clone to first delivery | | To be measured |
+| Rolling update of the worker under load, local Kubernetes (kind), 15 events/s for 120 s, 5 s receiver | Events lost / duplicated | 0 / 0 in 3 runs (1,800 to 1,801 events each). The same update with the shutdown grace cut to 1 s: 0 lost, 45 duplicated |
+| Rolling update of the API under the same load | Events lost, failed publishes | 0 and 0 of about 1,822 requests in 3 runs |
+| Image start time on kind | Container start to Ready | median 20 s (19 to 20 s, 12 pods), probe periods included |
+| Clean clone to first delivery | | To be measured |
+
+The three Kubernetes rows come from a different setup (2026-10-10, a single-node kind cluster on the same machine, k6 inside
+the cluster, one commit later than the rows above); [load/RESULTS.md](load/RESULTS.md) section f has the runs and the caveats.
+
+## Running on Kubernetes
+
+A Helm chart in [deploy/helm/webhook-platform/](deploy/helm/webhook-platform/) deploys the API and the worker from the
+one image, with probes, resource limits, a PodDisruptionBudget, a ServiceMonitor and a NetworkPolicy that stops the worker
+reaching private address ranges. [deploy/local/](deploy/local/) runs it on `kind` with PostgreSQL and an SQS-compatible
+queue, and rehearses a rolling update under load. The AWS version (EKS, RDS, Pod Identity) is Terraform in
+[infra/](infra/); it is written and validated but has not been applied yet. There is no domain and no load balancer in
+the plan: the demo is reached with `kubectl port-forward`.

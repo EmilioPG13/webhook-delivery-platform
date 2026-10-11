@@ -115,7 +115,48 @@ not the limit, is the ceiling. "Platform" is a fixed pool of 1,000 platform thre
 - This does not show where platform threads give out. That needs thousands of deliveries in flight, which this
   workload does not reach.
 
+## f. Rolling update on Kubernetes (kind), 2026-10-10
+
+Different setup from a to e: the Helm chart on a single-node `kind` cluster (Docker Desktop, same machine), 2 API pods
+and 2 worker pods, k6 running as a Job inside the cluster, PostgreSQL and the WireMock receiver as pods. Raw output:
+`results/rollout-*.txt`, produced by `deploy/local/rollout-test.ps1`. **This checks correctness, not speed**: k6 shares
+the node with everything else, and the rate is low on purpose.
+
+15 events per second for 120 s to `/very-slow` (a fixed 5 s answer, so about 75 deliveries are in flight at any moment)
+over 20 endpoints. Twenty-five seconds into the run, `helm upgrade` replaces the pods of one role (the pod template
+changes, so the deployment rolls: one new pod, ready, then one old pod goes; `maxUnavailable: 0`). The count comes from
+the receiver's request journal, grouped by the delivery's `webhook-id` header.
+
+| Rolled | Run | Accepted by the API | Requests at the receiver | Lost | Duplicates | Failed publishes (k6) |
+|---|---|---|---|---|---|---|
+| Worker | 1 | 1,801 | 1,801 | 0 | 0 | 0 of 1,822 |
+| Worker | 2 | 1,800 | 1,800 | 0 | 0 | 0 of 1,821 |
+| Worker | 3 | 1,801 | 1,801 | 0 | 0 | 0 of 1,822 |
+| API | 1 | 1,801 | 1,801 | 0 | 0 | 0 of 1,822 |
+| API | 2 | 1,801 | 1,801 | 0 | 0 | 0 of 1,822 |
+| API | 3 | 1,800 | 1,800 | 0 | 0 | 0 of 1,821 |
+| **Control:** worker, shutdown grace cut to 1 s | 1 | 1,800 | 1,845 | 0 | **45** | 0 of 1,821 |
+
+- **Nothing was lost in six rollouts, and no duplicate appeared** while the worker shut down gracefully (the consumers
+  stop reading and wait for the deliveries they started; `terminationGracePeriodSeconds` 60 against 45 s of Spring
+  shutdown and 30 s of consumer grace). The API rollouts lost no publish request either.
+- **The control shows the test can fail.** With the running pods created with a 1 s grace, the kubelet kills them while
+  their deliveries are in flight; SQS hands those messages out again after the visibility timeout and the receiver sees
+  them twice (45 extra requests). Still nothing is lost, which is the at-least-once guarantee of
+  [ADR 1](../adr/0001-at-least-once-delivery.md). Two earlier controls showed zero duplicates and were wrong: one used a
+  receiver whose answers are too short to be in flight at the kill, the other changed the grace period in the same
+  upgrade that rolled the pods, and a terminating pod keeps the grace period it was created with.
+- The 5 s receiver is slower than the production case on purpose: the test needs many deliveries in flight when a pod is
+  stopped. With the lognormal `/slow` receiver the same control found no duplicates.
+- Commit: the Phase 6 commits on top of `dff8f62`. The runs were made on that same tree before it was committed.
+
+### Image start time
+
+From the container starting to the pod being Ready, for 12 pods (API and worker, three restarts): 19, 19, 20 and nine
+times 20 s, median 20 s. This includes the startup and readiness probe periods (5 s each), so the application itself is
+ready somewhat sooner. Read from the pod's `startedAt` and `Ready` transition time, one-second resolution.
+
 ## Not measured yet
 
-Receiver down for 10 minutes and back (Phase 4 scenario list does not include it), rolling update of the worker
-(Phase 6), image start time (Phase 5), clean clone to first delivery (Phase 7).
+Receiver down for 10 minutes and back (Phase 4 scenario list does not include it), the same rollout on EKS (the demo
+window, Phase 6), clean clone to first delivery (Phase 7).

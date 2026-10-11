@@ -1,7 +1,9 @@
 data "aws_caller_identity" "current" {}
 
 # Anyone in this account who is allowed to call sts:AssumeRole can take the roles below, which is how a run on a
-# laptop gets short-lived credentials instead of permanent keys. Phase 6 adds the pod identity of the cluster.
+# laptop gets short-lived credentials instead of permanent keys. The second statement is EKS Pod Identity: the
+# pods of a ServiceAccount that cluster.tf associates with a role get its credentials from the node's agent.
+# sts:TagSession is required by that service, which tags the session with the cluster and pod.
 data "aws_iam_policy_document" "trust_account" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -9,6 +11,15 @@ data "aws_iam_policy_document" "trust_account" {
     principals {
       type        = "AWS"
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    actions = ["sts:AssumeRole", "sts:TagSession"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
     }
   }
 }

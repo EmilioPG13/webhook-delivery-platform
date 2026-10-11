@@ -5,7 +5,7 @@ Terraform, in two parts with different lifetimes. Every resource carries the tag
 | Directory | Creates | Lifetime |
 |---|---|---|
 | `bootstrap/` | Budget with email alerts, S3 bucket for the Terraform state, ECR repository, optionally the GitHub OIDC provider and the CI role (off, see below) | Permanent, costs almost nothing |
-| `demo/` | SQS queue with its dead-letter queue, two Secrets Manager secrets, IAM roles for the worker and the API | Created to test and destroyed afterwards |
+| `demo/` | SQS queue with its dead-letter queue, two Secrets Manager secrets, IAM roles for the worker and the API. Behind `demo_window`: a VPC, an EKS cluster and an RDS database | The data part is created to test and destroyed afterwards. The window part lives 3 to 5 days |
 
 The account is a managed AWS project in `us-east-2`; its service control policies restrict some IAM actions.
 All commands below run with `AWS_PROFILE=webhooks` (`aws login --profile webhooks` renews the session).
@@ -77,8 +77,78 @@ aws sqs send-message --queue-url <queue_url> --message-body poison
 aws sqs get-queue-attributes --queue-url <dead_letter_queue_url> --attribute-names ApproximateNumberOfMessages
 ```
 
+## Demo window: EKS, RDS and the run in the cluster
+
+`cluster.tf` and `database.tf` create a VPC (public subnets, no NAT gateway, no load balancer), an EKS cluster with two
+`t3.medium` nodes, an RDS PostgreSQL 18 instance and the Pod Identity associations. All of it is behind
+`demo_window`, which is `false` by default, so the data layer above stays as it is between demos. Nothing in the
+window is exposed to the internet; the API is used through `kubectl port-forward`.
+
+**Before opening the window**
+
+- `aws login --profile webhooks`, then `aws freetier get-account-plan-state`. EKS is not on every plan: if it is not on
+  the list for the plan the account is on, either move to the paid plan (the remaining credit is kept) or use k3s on one
+  EC2 instance, which this directory does not cover.
+- Rough cost, **unverified against the pricing pages**: EKS control plane 0.10 USD/h, two `t3.medium` about 0.04 USD/h
+  each, `db.t4g.micro` under 0.02 USD/h, plus storage and public IPv4 addresses. Around 5 USD a day, 25 USD for five days.
+  Check it in the AWS pricing calculator and write the total in the plan first. The monthly budget from `bootstrap/`
+  is 5 USD, so it **will** send its alerts: raise it for the window, or expect the emails.
+- Put a calendar reminder on the day the window must close.
+
+**Open**
+
+```powershell
+cd infra\demo
+terraform plan -var demo_window=true -out=tfplan; terraform apply tfplan
+aws eks update-kubeconfig --name webhooks-demo --region us-east-2
+
+# The master key is read by the pods from Secrets Manager (see the data part above for put-secret-value).
+# The database password was created by RDS; the chart's Secret takes it from there.
+$pw = aws secretsmanager get-secret-value --secret-id (terraform output -raw database_password_secret_arn) --query SecretString --output text | ConvertFrom-Json
+kubectl create namespace webhooks
+kubectl -n webhooks create secret generic webhooks --from-literal=DATABASE_PASSWORD=$($pw.password) --from-literal=WEBHOOKS_ADMIN_TOKEN=<the admin token>
+
+cd ..\..
+$db = terraform -chdir=infra/demo output -raw database_endpoint
+helm upgrade --install webhook-platform deploy/helm/webhook-platform -n webhooks `
+  -f deploy/helm/webhook-platform/values-eks.yaml `
+  --set "config.DATABASE_URL=jdbc:postgresql://${db}:5432/webhooks?sslmode=require" --wait
+kubectl -n webhooks port-forward svc/webhook-platform-api 8081:8080
+```
+
+The image comes from GHCR: make the package public (see above) or add an image pull secret and set
+`image.pullSecrets`. The chart's `ServiceMonitor` stays off unless kube-prometheus-stack is installed on the cluster.
+
+**The run in the cluster.** Add the test receiver and the load overlay, run k6 as a Job, read the summary, then take the
+overlay off again:
+
+```powershell
+kubectl -n webhooks create configmap receiver-mappings --from-file=load/receiver/mappings
+kubectl apply -f deploy/local/receiver.yaml
+helm upgrade webhook-platform deploy/helm/webhook-platform -n webhooks -f deploy/helm/webhook-platform/values-eks.yaml `
+  -f deploy/helm/webhook-platform/values-eks-load.yaml --set "config.DATABASE_URL=jdbc:postgresql://${db}:5432/webhooks?sslmode=require" --wait
+kubectl -n webhooks create configmap k6-script --from-file=publish.js=load/publish.js
+kubectl apply -f deploy/eks/k6-job.yaml
+kubectl -n webhooks wait --for=condition=complete job/k6 --timeout=10m; kubectl -n webhooks logs job/k6
+```
+
 ## Tear down
 
 ```powershell
-cd infra\demo; terraform destroy      # bootstrap stays
+cd infra\demo
+kubectl delete namespace webhooks     # first, so nothing created from inside the cluster outlives it
+terraform apply -var demo_window=false    # destroys the VPC, cluster and database; the data layer stays
+# or, for everything in this directory: terraform destroy      (bootstrap always stays)
 ```
+
+Terraform does not always clean up after itself. Check by hand in the console, in `us-east-2`:
+
+- [ ] EKS clusters and node groups, and the EC2 instances behind them
+- [ ] Load balancers and target groups (there should be none)
+- [ ] EBS volumes left by PersistentVolumeClaims (Terraform does not delete these)
+- [ ] RDS instances and snapshots (none should be left: the instance skips its final snapshot)
+- [ ] Elastic IPs and NAT gateways (there should be none)
+- [ ] CloudWatch log groups
+- [ ] Secrets Manager secrets, including the one RDS created for the master password
+- [ ] Old images in ECR
+- [ ] The next day, Cost Explorer filtered by the tag `project = webhooks`: the daily cost must be close to zero
