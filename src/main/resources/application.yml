@@ -8,6 +8,10 @@ spring:
   threads:
     virtual:
       enabled: true
+  lifecycle:
+    # Per shutdown phase, and the worker's consumers stop in one: it must outlast their 30 s grace for running
+    # deliveries. A pod's terminationGracePeriodSeconds has to outlast this one in turn.
+    timeout-per-shutdown-phase: 45s
   jpa:
     open-in-view: false
     hibernate:
@@ -20,7 +24,22 @@ spring:
   jackson:
     property-naming-strategy: SNAKE_CASE
 
+server:
+  # On SIGTERM stop accepting requests and let the ones in flight finish, instead of cutting them.
+  shutdown: graceful
+
 management:
+  endpoint:
+    health:
+      # Serves /actuator/health/liveness and /readiness whatever the platform. Kubernetes enables them on its own,
+      # but the dev profile and the tests run elsewhere.
+      probes:
+        enabled: true
+      group:
+        # Ready means able to serve: the process is up and the database answers. Liveness stays free of the
+        # database on purpose, or a database outage would have Kubernetes restart every pod for nothing.
+        readiness:
+          include: readinessState,db
   endpoints:
     web:
       exposure:
@@ -39,6 +58,9 @@ webhooks:
   secrets:
     # Base64 of 32 random bytes. Required: the app refuses to start without it.
     master-key: ${WEBHOOKS_MASTER_KEY:}
+    # Name or ARN of an AWS Secrets Manager secret holding that same value. Set it instead of master-key, never
+    # both (see MasterKeyFromSecretsManager).
+    master-key-secret-id: ${WEBHOOKS_MASTER_KEY_SECRET_ID:}
     key-version: 1
   endpoints:
     allow-insecure-http: false

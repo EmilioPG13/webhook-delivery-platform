@@ -1,0 +1,2 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+io.github.emiliopg13.webhooks.endpoint.MasterKeyFromSecretsManager
