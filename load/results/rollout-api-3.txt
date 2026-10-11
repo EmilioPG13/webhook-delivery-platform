@@ -1,0 +1,54 @@
+﻿run:        rollout-api-3
+commit:     dff8f62
+when:       2026-10-10 21:22:36 local
+settings:   roll=api rate=15/s duration=120s receiver=/very-slow endpoints=20 upgrade_after=25s extra=
+rollout:    helm upgrade took 37 s (replicas: api=2, worker=2)
+drain:      0 s after publishing ended, drained=True
+
+events accepted by the API:        1800
+deliveries by status:              delivered=1800
+requests the receiver got:         1800
+distinct webhook-ids it got:       1800
+LOST (accepted, never received):   0
+DUPLICATES (extra requests):       0
+result:     PASS
+
+--- k6 ---
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<200' p(95)=10.13ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 1800    14.949785/s
+    checks_succeeded...: 100.00% 1800 out of 1800
+    checks_failed......: 0.00%   0 out of 1800
+
+    ✓ accepted
+
+    HTTP
+    http_req_duration..............: avg=7.94ms min=4.72ms med=6.95ms max=281.31ms p(90)=9.25ms p(95)=10.13ms
+      { expected_response:true }...: avg=7.94ms min=4.72ms med=6.95ms max=281.31ms p(90)=9.25ms p(95)=10.13ms
+    http_req_failed................: 0.00%  0 out of 1821
+    http_reqs......................: 1821   15.124199/s
+
+    EXECUTION
+    iteration_duration.............: avg=8.05ms min=5.72ms med=7.2ms  max=281.75ms p(90)=9.44ms p(95)=10.36ms
+    iterations.....................: 1800   14.949785/s
+    vus............................: 0      min=0         max=0 
+    vus_max........................: 50     min=50        max=50
+
+    NETWORK
+    data_received..................: 866 kB 7.2 kB/s
+    data_sent......................: 473 kB 3.9 kB/s
+
+
+
+

@@ -1,0 +1,39 @@
+# The local kind cluster: image loaded with `kind load`, dependencies from deploy/local/dependencies.yaml.
+# Every credential is a public throwaway. Never reuse them anywhere else.
+image:
+  repository: webhooks
+  tag: dev
+  pullPolicy: Never
+
+secret:
+  create: true
+  values:
+    DATABASE_PASSWORD: webhooks
+    WEBHOOKS_ADMIN_TOKEN: dev-admin-token
+    WEBHOOKS_MASTER_KEY: ZGV2LW9ubHktbWFzdGVyLWtleS0zMi1ieXRlcyEhISE=
+
+config:
+  DATABASE_URL: jdbc:postgresql://postgres:5432/webhooks
+  DATABASE_USER: webhooks
+  WEBHOOKS_QUEUE_ENDPOINT: http://elasticmq:9324
+  WEBHOOKS_QUEUE_CREATE_IF_MISSING: "true"
+  # The test receiver is plain http on a cluster address. A real deployment keeps both false.
+  WEBHOOKS_ENDPOINTS_ALLOW_INSECURE_HTTP: "true"
+  WEBHOOKS_ENDPOINTS_ALLOW_PRIVATE_DESTINATIONS: "true"
+
+networkPolicy:
+  enabled: true
+  allowEgressTo:
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports: [{ port: 5432, protocol: TCP }]
+    - to:
+        - podSelector: { matchLabels: { app: elasticmq } }
+      ports: [{ port: 9324, protocol: TCP }]
+    # The test receiver stands in for a customer's server, which in a real cluster is outside the private ranges.
+    - to:
+        - podSelector: { matchLabels: { app: receiver } }
+      ports: [{ port: 8080, protocol: TCP }]
+
+serviceMonitor:
+  enabled: true

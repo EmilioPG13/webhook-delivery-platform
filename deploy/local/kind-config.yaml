@@ -1,0 +1,6 @@
+# One control-plane node that also runs workloads: enough for rollouts, probes and policies, and light on memory.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: webhooks
+nodes:
+  - role: control-plane

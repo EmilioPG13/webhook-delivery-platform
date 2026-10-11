@@ -1,0 +1,35 @@
+# kube-prometheus-stack trimmed for a single-node kind cluster:
+#   helm upgrade --install kps oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version 92.3.0 `
+#     -n monitoring --create-namespace -f deploy/local/kube-prometheus-stack-values.yaml
+# Throwaway credentials, local cluster only.
+alertmanager:
+  enabled: false
+
+# Node exporter needs host paths that Docker Desktop does not expose to a kind node.
+nodeExporter:
+  enabled: false
+
+# kind runs these control-plane components with their metrics on localhost only, so scraping them just fails.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    # Pick up every ServiceMonitor in the cluster, not only those labelled with this release's name.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    retention: 2d
+    resources:
+      requests: { cpu: 100m, memory: 400Mi }
+
+grafana:
+  adminPassword: admin
+  sidecar:
+    dashboards:
+      # Load every ConfigMap labelled grafana_dashboard=1, whichever namespace it is in.
+      searchNamespace: ALL

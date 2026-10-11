@@ -1,0 +1,105 @@
+# What the platform needs next to it, as plain manifests: PostgreSQL and an SQS-compatible queue.
+# In AWS these are RDS and the real SQS, so none of this ships with the Helm chart.
+#
+# Every credential here is a public throwaway for a local cluster. Never reuse them anywhere else.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webhooks
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres
+  namespace: webhooks
+stringData:
+  POSTGRES_DB: webhooks
+  POSTGRES_USER: webhooks
+  POSTGRES_PASSWORD: webhooks
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: webhooks
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: webhooks
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18
+          envFrom:
+            - secretRef:
+                name: postgres
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "webhooks", "-d", "webhooks"]
+            periodSeconds: 5
+          volumeMounts:
+            # PostgreSQL 18 images keep the data directory under a versioned path inside /var/lib/postgresql.
+            - name: data
+              mountPath: /var/lib/postgresql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticmq
+  namespace: webhooks
+spec:
+  selector:
+    app: elasticmq
+  ports:
+    - port: 9324
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticmq
+  namespace: webhooks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticmq
+  template:
+    metadata:
+      labels:
+        app: elasticmq
+    spec:
+      containers:
+        - name: elasticmq
+          image: softwaremill/elasticmq-native:1.7.1
+          ports:
+            - containerPort: 9324
+          readinessProbe:
+            tcpSocket:
+              port: 9324

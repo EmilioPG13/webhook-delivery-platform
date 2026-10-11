@@ -1,0 +1,51 @@
+# The demo window on EKS. What differs per run comes from Terraform's outputs and goes on the command line:
+#
+#   helm upgrade --install webhook-platform deploy/helm/webhook-platform -n webhooks --create-namespace `
+#     -f deploy/helm/webhook-platform/values-eks.yaml `
+#     --set config.DATABASE_URL=jdbc:postgresql://<rds endpoint>:5432/webhooks
+#
+# The Secret `webhooks` (DATABASE_PASSWORD, WEBHOOKS_ADMIN_TOKEN) is created by hand with kubectl, never by the chart.
+# The master key is not in it: the pods read it from Secrets Manager with their Pod Identity role.
+image:
+  repository: ghcr.io/emiliopg13/webhook-delivery-platform
+  # CI publishes `latest` and the commit sha. Pin the sha for a demo you want to reproduce.
+  tag: latest
+  pullPolicy: Always
+
+secret:
+  create: false
+  name: webhooks
+
+config:
+  DATABASE_USER: webhooks
+  AWS_REGION: us-east-2
+  WEBHOOKS_MASTER_KEY_SECRET_ID: webhooks/master-key
+  # Real SQS: the queue comes from Terraform and the endpoint stays empty (see SQS_ENDPOINT in application.yml).
+  WEBHOOKS_QUEUE_CREATE_IF_MISSING: "false"
+
+# Nodes are t3.small class: leave room for the system pods and the monitoring stack.
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 768Mi }
+
+worker:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 768Mi }
+
+# The VPC CNI enforces NetworkPolicy only when its network policy agent is on (set in infra/demo). Inside the private
+# ranges the worker may reach only the database; the queue and Secrets Manager are public endpoints.
+networkPolicy:
+  enabled: true
+  allowEgressTo:
+    - to:
+        - ipBlock: { cidr: 10.0.0.0/16 }
+      ports: [{ port: 5432, protocol: TCP }]
+    # The Pod Identity agent hands out the role's credentials from this one link-local address. The instance
+    # metadata service (169.254.169.254) stays closed.
+    - to:
+        - ipBlock: { cidr: 169.254.170.23/32 }
+      ports: [{ port: 80, protocol: TCP }]

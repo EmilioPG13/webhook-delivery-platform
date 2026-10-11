@@ -1,0 +1,24 @@
+# Layered on top of values-eks.yaml for the short k6 run inside the cluster, never for anything left running:
+#
+#   helm upgrade webhook-platform deploy/helm/webhook-platform -n webhooks `
+#     -f deploy/helm/webhook-platform/values-eks.yaml -f deploy/helm/webhook-platform/values-eks-load.yaml ...
+#
+# The test receiver is a pod with a private address and speaks plain http, so the SSRF guard has to allow both, and
+# the worker's NetworkPolicy has to let it through. Helm replaces lists instead of merging them, so the rules of
+# values-eks.yaml are repeated here. Take this overlay off (a plain `helm upgrade` with values-eks.yaml only) when the
+# run is over.
+config:
+  WEBHOOKS_ENDPOINTS_ALLOW_INSECURE_HTTP: "true"
+  WEBHOOKS_ENDPOINTS_ALLOW_PRIVATE_DESTINATIONS: "true"
+
+networkPolicy:
+  allowEgressTo:
+    - to:
+        - ipBlock: { cidr: 10.0.0.0/16 }
+      ports: [{ port: 5432, protocol: TCP }]
+    - to:
+        - ipBlock: { cidr: 169.254.170.23/32 }
+      ports: [{ port: 80, protocol: TCP }]
+    - to:
+        - podSelector: { matchLabels: { app: receiver } }
+      ports: [{ port: 8080, protocol: TCP }]

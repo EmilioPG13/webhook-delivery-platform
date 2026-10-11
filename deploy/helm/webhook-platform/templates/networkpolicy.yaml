@@ -1,0 +1,37 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "webhooks.fullname" . }}-worker
+  labels:
+    {{- include "webhooks.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "webhooks.selector" (dict "root" . "role" "worker") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    {{- with .Values.networkPolicy.allowEgressTo }}
+    # The database and the queue, which live inside the private ranges.
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    # Everything else on the internet: the customers' servers, on any port. The private ranges stay closed.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- range .Values.networkPolicy.privateRanges }}
+              - {{ . }}
+              {{- end }}
+{{- end }}

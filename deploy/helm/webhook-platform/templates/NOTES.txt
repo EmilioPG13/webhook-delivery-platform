@@ -1,0 +1,3 @@
+The API is a ClusterIP Service. Reach it with:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "webhooks.fullname" . }}-api 8081:8080

@@ -1,0 +1,46 @@
+# The customer's server, as far as the platform is concerned: the same WireMock and stubs as compose.yaml.
+# The stubs come from load/receiver/mappings, so create their ConfigMap first (see README.md).
+apiVersion: v1
+kind: Service
+metadata:
+  name: receiver
+  namespace: webhooks
+spec:
+  selector:
+    app: receiver
+  ports:
+    - port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: receiver
+  namespace: webhooks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: receiver
+  template:
+    metadata:
+      labels:
+        app: receiver
+    spec:
+      containers:
+        - name: wiremock
+          image: wiremock/wiremock:3.13.2
+          # Enough threads that a slow answer never queues inside the receiver, which would hide the platform
+          # behind it. Request logging is off. The journal is larger than in compose.yaml because the rollout test
+          # reads every request back to count duplicates; it is for correctness runs, not for benchmarks.
+          args: ["--container-threads", "1000", "--disable-request-logging", "--max-request-journal-entries", "20000"]
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /__admin/mappings, port: 8080 }
+          volumeMounts:
+            - name: mappings
+              mountPath: /home/wiremock/mappings
+      volumes:
+        - name: mappings
+          configMap:
+            name: receiver-mappings

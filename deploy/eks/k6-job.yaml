@@ -1,0 +1,39 @@
+# k6 as a Job inside the cluster, so the numbers do not include the network of the machine that started the run.
+# Create the script's ConfigMap first, then apply this and read the summary with `kubectl logs job/k6`:
+#
+#   kubectl -n webhooks create configmap k6-script --from-file=publish.js=load/publish.js
+#   kubectl apply -f deploy/eks/k6-job.yaml
+#
+# The receiver is deploy/local/receiver.yaml (and its receiver-mappings ConfigMap); the overlay values-eks-load.yaml lets
+# the worker reach it. Edit the env values below for a different rate or receiver path.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6
+  namespace: webhooks
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:1.3.0
+          args: ["run", "--quiet", "/load/publish.js"]
+          env:
+            - { name: BASE_URL, value: "http://webhook-platform-api:8080" }
+            - { name: RECEIVER_URL, value: "http://receiver:8080" }
+            - { name: RECEIVER_PATH, value: "/ok" }
+            - { name: RATE, value: "50" }
+            - { name: DURATION, value: "60s" }
+            - { name: ENDPOINTS, value: "20" }
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef: { name: webhooks, key: WEBHOOKS_ADMIN_TOKEN }
+          volumeMounts:
+            - { name: script, mountPath: /load }
+      volumes:
+        - name: script
+          configMap:
+            name: k6-script

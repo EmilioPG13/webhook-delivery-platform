@@ -1,0 +1,81 @@
+image:
+  repository: ghcr.io/emiliopg13/webhook-delivery-platform
+  tag: latest
+  pullPolicy: IfNotPresent
+  # Names of image pull secrets, for a private registry.
+  pullSecrets: []
+
+# Where the credentials come from. Either the chart creates the Secret (local clusters only: the values end up in
+# the release), or it points at one that exists. The Secret holds DATABASE_PASSWORD, WEBHOOKS_ADMIN_TOKEN and,
+# unless the master key comes from AWS Secrets Manager, WEBHOOKS_MASTER_KEY.
+secret:
+  create: false
+  name: webhooks
+  values: {}
+
+# Application settings as environment variables, in a ConfigMap shared by both roles.
+config:
+  DATABASE_URL: jdbc:postgresql://postgres:5432/webhooks
+  DATABASE_USER: webhooks
+  AWS_REGION: us-east-2
+
+# The role-specific part. Both roles run the same image; the worker adds SPRING_PROFILES_ACTIVE=worker.
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 768Mi }
+
+worker:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 768Mi }
+  # Must outlast spring.lifecycle.timeout-per-shutdown-phase (45s): the consumers stop reading and finish what
+  # they started before the process exits.
+  terminationGracePeriodSeconds: 60
+
+# One ServiceAccount per role (<release>-api, <release>-worker). On EKS, a Pod Identity association links each one to
+# its IAM role, so the pods read Secrets Manager and SQS without stored keys. The chart creates the accounts; the
+# associations are Terraform's (infra/demo).
+serviceAccount:
+  create: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# The startup probe reuses the liveness path, since Actuator has no startup group.
+probes:
+  startup: { failureThreshold: 30, periodSeconds: 5 }
+  liveness: { periodSeconds: 10, failureThreshold: 3 }
+  readiness: { periodSeconds: 5, failureThreshold: 3 }
+
+# Needs the Prometheus Operator CRDs (kube-prometheus-stack). /actuator/prometheus answers only to the operator
+# token, so the scrape reads it from the Secret above.
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  # Labels the Prometheus of kube-prometheus-stack selects on (its release name).
+  labels: {}
+
+# Denies the worker's egress to private ranges, so a webhook URL that slips past the SSRF guard still cannot reach
+# the cluster, the node or the cloud metadata service. Needs a CNI that enforces NetworkPolicy.
+networkPolicy:
+  enabled: false
+  # What the worker may reach inside the private ranges: the database and the queue, as NetworkPolicy egress rules.
+  allowEgressTo: []
+  privateRanges:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 169.254.0.0/16
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+
+# Off by default: the demo reaches the API with kubectl port-forward (no domain, no load balancer).
+ingress:
+  enabled: false
+  className: ""
+  host: webhooks.example.com
+  annotations: {}

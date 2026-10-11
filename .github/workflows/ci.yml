@@ -51,11 +51,22 @@ jobs:
       - run: terraform init -backend=false
       - run: terraform validate
 
+  # The chart must render for both environments. No cluster is needed for that.
+  helm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: helm lint deploy/helm/webhook-platform -f deploy/helm/webhook-platform/values-kind.yaml
+      - run: helm template webhook-platform deploy/helm/webhook-platform -f deploy/helm/webhook-platform/values-kind.yaml > /dev/null
+      - run: helm lint deploy/helm/webhook-platform -f deploy/helm/webhook-platform/values-eks.yaml --set config.DATABASE_URL=jdbc:postgresql://db:5432/webhooks
+      - run: helm template webhook-platform deploy/helm/webhook-platform -f deploy/helm/webhook-platform/values-eks.yaml --set config.DATABASE_URL=jdbc:postgresql://db:5432/webhooks > /dev/null
+
   # Publishes the image to GitHub Container Registry from main, authenticated with the workflow's own token: no
   # secrets to store. (ECR with OIDC was the first plan; the AWS project forbids the OIDC provider, see infra/README.md.)
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [verify, image, terraform]
+    needs: [verify, image, terraform, helm]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

@@ -1,0 +1,8 @@
+{
+  "request": { "method": "POST", "urlPath": "/very-slow" },
+  "response": {
+    "status": 200,
+    "body": "received",
+    "fixedDelayMilliseconds": 5000
+  }
+}

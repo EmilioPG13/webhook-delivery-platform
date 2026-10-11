@@ -1,0 +1,1 @@
+{{ include "webhooks.workload" (dict "root" . "role" "worker" "cfg" .Values.worker) }}
