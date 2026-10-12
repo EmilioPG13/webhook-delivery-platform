@@ -56,18 +56,21 @@ in a real deployment. How long this takes is in the results table below.
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     Client([Tenant's application]) -->|POST /v1/events| API[API role]
-    API -->|event + deliveries, one transaction| PG[(PostgreSQL)]
-    subgraph Worker role
-        D[Dispatcher] --> Q
-        C[Consumers] --> S[Sender]
+    API -->|event and deliveries, one transaction| PG[(PostgreSQL)]
+    PG -->|due deliveries| D
+    subgraph W [Worker role]
+        D[Dispatcher]
+        C[Consumers]
+        S[Sender]
         R[Reaper and retention]
     end
-    PG --> D
-    Q[[SQS queue, with a dead-letter queue]] --> C
+    D -->|delivery ids| Q[[SQS queue and dead-letter queue]]
+    Q --> C
     C -->|claim with a lease| PG
-    S -->|signed POST through the SSRF guard| Recv([Customer's endpoint])
+    C --> S
+    S -->|signed POST, SSRF guard| Recv([Customer's endpoint])
     S -->|attempt and next state| PG
     R --> PG
 ```
