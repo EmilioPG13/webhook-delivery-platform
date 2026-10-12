@@ -22,9 +22,13 @@ plan did not run while the code was being written. A budget alert was the first 
 
 The window was opened and closed on 2026-10-11. A smoke run on the real services (EKS, RDS 18, the real SQS, Pod
 Identity for the master key) accepted 3,001 of 3,001 events and delivered all of them, with no failures. It is one run,
-so it is evidence that the stack works there and not a measurement. Cost Explorer showed 4.40 USD of usage that day,
-covered by credits. The node type is `c7i-flex.large`, forced by what the Free plan launches, which made the day more
-expensive than the plan assumed.
+so it is evidence that the stack works there and not a measurement. Cost Explorer, read on 2026-10-12, shows 5.29 USD
+of usage on the 11th and 1.46 USD on the 12th (UTC), about 6.75 USD for the window, all covered by credits so the net
+cost is 0. The 12th is the tail of the window: the cluster ran 5.1 hours of that day, not 24, and a check of
+`us-east-2` afterwards found no cluster, database, instance, volume, address or load balancer. The node type is
+`c7i-flex.large`, forced by what the Free plan launches, which made the day more expensive than the plan assumed.
+Credits hide this from the budget: it counts credits, so its spend reads 0 and its alerts cannot fire until the credits
+are gone.
 
 ## Consequences
 

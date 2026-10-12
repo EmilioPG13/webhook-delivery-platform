@@ -247,7 +247,7 @@ queue, and rehearses a rolling update under load. CI runs the tests, builds the 
 The AWS side is Terraform in [infra/](infra/): SQS with a dead-letter queue, Secrets Manager, least-privilege roles, and,
 behind a `demo_window` switch that is off by default, a VPC, EKS and RDS. EKS costs money by the hour, so it was opened
 for one day (2026-10-11), used for the smoke run in the table above, and destroyed with a manual checklist
-([ADR 11](adr/0011-eks-only-in-a-demo-window.md)). Cost Explorer showed 4.40 USD of usage that day, covered by credits.
+([ADR 11](adr/0011-eks-only-in-a-demo-window.md)). Cost Explorer shows about 6.75 USD of usage for the window (the 11th and the first hours of the 12th UTC), covered by credits.
 There is no domain and no load balancer: the demo is reached with `kubectl port-forward`.
 
 ## Limitations
