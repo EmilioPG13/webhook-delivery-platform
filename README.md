@@ -10,6 +10,12 @@ Java 25, Spring Boot 4.1, PostgreSQL 18, Amazon SQS, Kubernetes. It was deployed
 demo window and torn down, see [Deployment and cost](#deployment-and-cost). It has no public URL and is not hardened for
 the internet, so do not expose it.
 
+![A receiver answers 500 twice and 200 the third time; the platform retries and delivers, every attempt carrying the same webhook-id](assets/demo.gif)
+
+A receiver that answers `500` twice and `200` the third time, on a local `kind` cluster. The attempts and their times
+are the real ones from a recorded run (the stub is `/flaky` in [load/receiver/mappings/](load/receiver/mappings/flaky.json));
+only the waits between them are sped up 25 times, as the animation says. The whole run took 135 seconds.
+
 ## Run it in a few minutes
 
 Requires Docker. A JDK 25 is only needed to run the tests or work on the code.
@@ -17,10 +23,10 @@ Requires Docker. A JDK 25 is only needed to run the tests or work on the code.
 ```powershell
 git clone https://github.com/EmilioPG13/webhook-delivery-platform.git
 cd webhook-delivery-platform
-docker compose up --build -d
+docker compose up --build -d --wait
 ```
 
-This starts PostgreSQL, ElasticMQ (a local SQS), the API on port 8081, a worker, Prometheus, Grafana and a WireMock
+`--wait` returns once the API and the worker report healthy. This starts PostgreSQL, ElasticMQ (a local SQS), the API on port 8081, a worker, Prometheus, Grafana and a WireMock
 receiver on port 8090 that stands in for a customer's server. Create a tenant with the operator token, register the
 receiver as an endpoint, and publish an event with the API key the first call returned:
 
@@ -38,13 +44,14 @@ curl.exe -X POST http://localhost:8081/v1/events -H "Authorization: Bearer <api 
 ```
 
 Look at what the receiver got, signature headers included, at http://localhost:8090/__admin/requests, and at the
-delivery with `GET /v1/deliveries?event_id=<event id>`. Point an endpoint at `http://receiver:8080/fail500` to watch
-retries: the delivery goes back to `pending` with the date of the next attempt, and every attempt is listed at
-`GET /v1/deliveries/<id>/attempts`. The API documentation is at `/swagger-ui/index.html`.
+delivery with `GET /v1/deliveries?event_id=<event id>`. Point an endpoint at `http://receiver:8080/flaky` (it answers `500`
+twice, then `200`) or at `/fail500` (always `500`) to watch retries: the delivery goes back to `pending` with the date
+of the next attempt, and every attempt is listed at `GET /v1/deliveries/<id>/attempts`. The first retry comes after
+about 30 seconds, the second after about 2 minutes. The API documentation is at `/swagger-ui/index.html`.
 
 The secrets in `compose.yaml` are public throwaways for local use. The same file turns the destination guard off
 (`WEBHOOKS_ENDPOINTS_ALLOW_PRIVATE_DESTINATIONS`), because the receiver it starts has a private address; never set that
-in a real deployment. The time from a clean clone to the first delivery has not been measured yet.
+in a real deployment. How long this takes is in the results table below.
 
 ## How it works
 
@@ -179,7 +186,7 @@ the setup and the caveats are in [load/RESULTS.md](load/RESULTS.md); the scenari
 | Rolling update of the API under the same load | Events lost, failed publishes | 0 and 0 of about 1,822 requests in 3 runs |
 | Image start time on kind | Container start to Ready | median 20 s (19 to 20 s, 12 pods), probe periods included |
 | Smoke run on EKS, 50 events/s for 60 s, 2 nodes, 2 API and 2 worker pods | Accepted / delivered / failed | 3,001 of 3,001 / 3,001 / 0, p95 publish 40 ms. One run, so it shows the stack works there and is not a measurement |
-| Clean clone to first delivery | | To be measured |
+| Clean clone to first delivery, following this README (2026-10-12, commit `98c8e97`, the same machine) | Seconds | 74 s, and about 86 s with the image rebuilt without the layer cache. One run each. The base images and the Docker build cache of the Maven dependencies were already on the machine, so a first run elsewhere also pays for downloading them, which was not measured |
 
 The three Kubernetes rows on kind come from a different setup (2026-10-10, a single-node cluster on the same machine, k6
 inside the cluster, one commit later than the rows above); [load/RESULTS.md](load/RESULTS.md) section f has the runs and
