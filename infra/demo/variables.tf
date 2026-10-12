@@ -41,9 +41,9 @@ variable "kubernetes_version" {
 }
 
 variable "node_instance_type" {
-  description = "Worker node size. Pods get their IPs from the VPC, so small types run out of pod slots quickly."
+  description = "Worker node size. The Free plan only launches Free Tier eligible types (aws ec2 describe-instance-types --filters Name=free-tier-eligible,Values=true), which rules out t3.medium. Pods get their IPs from the VPC, so types with few network interfaces run out of pod slots quickly."
   type        = string
-  default     = "t3.medium"
+  default     = "c7i-flex.large"
 }
 
 variable "node_count" {

@@ -146,6 +146,9 @@ resource "aws_iam_role_policy_attachment" "node" {
   for_each = var.demo_window ? toset([
     "AmazonEKSWorkerNodePolicy",
     "AmazonEKS_CNI_Policy",
+    # Without this the nodes cannot pull the images of aws-node and kube-proxy from AWS's own registry: they register,
+    # stay NotReady, and the node group never turns ACTIVE.
+    "AmazonEC2ContainerRegistryReadOnly",
   ]) : toset([])
 
   role       = aws_iam_role.node[0].name

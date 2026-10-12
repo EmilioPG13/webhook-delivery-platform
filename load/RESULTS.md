@@ -156,7 +156,24 @@ From the container starting to the pod being Ready, for 12 pods (API and worker,
 times 20 s, median 20 s. This includes the startup and readiness probe periods (5 s each), so the application itself is
 ready somewhat sooner. Read from the pod's `startedAt` and `Ready` transition time, one-second resolution.
 
+## g. Smoke run on EKS, 2026-10-11
+
+The demo window: the Helm chart on EKS 1.36 (two `c7i-flex.large` nodes, public subnets), PostgreSQL 18 on RDS
+(`db.t4g.micro`), the real SQS queue, 2 API pods and 2 worker pods, WireMock as a pod and k6 as a Job inside the cluster
+(`deploy/eks/k6-job.yaml`). Raw k6 output: `results/eks-k6-1.txt`. **One run, so a smoke test and not a measurement**: it
+shows the stack works end to end on the real services; repeat it three times before quoting a figure.
+
+50 events per second for 60 s to `/ok`, over 20 endpoints.
+
+| Accepted by the API (`202`) | Failed publishes | p95 publish latency | Deliveries completed | Deliveries failed |
+|---|---|---|---|---|
+| 3,001 of 3,001 | 0 of 3,022 | 40 ms | 3,001 | 0 |
+
+- Deliveries completed is the sum of the two workers' `webhooks_delivery_attempts_seconds_count{outcome="delivered"}`
+  (1,500 and 1,501), read from `/actuator/prometheus` after the run. That output was not saved.
+- The image pull from GHCR, the Flyway migration on RDS and the master key read from Secrets Manager with Pod Identity
+  all worked.
+
 ## Not measured yet
 
-Receiver down for 10 minutes and back (Phase 4 scenario list does not include it), the same rollout on EKS (the demo
-window, Phase 6), clean clone to first delivery (Phase 7).
+Receiver down for 10 minutes and back (Phase 4 scenario list does not include it), the same rollout on EKS, clean clone to first delivery (Phase 7).

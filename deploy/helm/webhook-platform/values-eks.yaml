@@ -23,7 +23,7 @@ config:
   # Real SQS: the queue comes from Terraform and the endpoint stays empty (see SQS_ENDPOINT in application.yml).
   WEBHOOKS_QUEUE_CREATE_IF_MISSING: "false"
 
-# Nodes are t3.small class: leave room for the system pods and the monitoring stack.
+# Nodes are c7i-flex.large (2 vCPU, 4 GiB): leave room for the system pods.
 api:
   replicas: 2
   resources:

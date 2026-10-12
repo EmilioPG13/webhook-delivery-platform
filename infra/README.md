@@ -80,7 +80,7 @@ aws sqs get-queue-attributes --queue-url <dead_letter_queue_url> --attribute-nam
 ## Demo window: EKS, RDS and the run in the cluster
 
 `cluster.tf` and `database.tf` create a VPC (public subnets, no NAT gateway, no load balancer), an EKS cluster with two
-`t3.medium` nodes, an RDS PostgreSQL 18 instance and the Pod Identity associations. All of it is behind
+`c7i-flex.large` nodes (the Free plan refuses `t3.medium`: only Free Tier eligible types launch), an RDS PostgreSQL 18 instance and the Pod Identity associations. All of it is behind
 `demo_window`, which is `false` by default, so the data layer above stays as it is between demos. Nothing in the
 window is exposed to the internet; the API is used through `kubectl port-forward`.
 
@@ -89,8 +89,8 @@ window is exposed to the internet; the API is used through `kubectl port-forward
 - `aws login --profile webhooks`, then `aws freetier get-account-plan-state`. EKS is not on every plan: if it is not on
   the list for the plan the account is on, either move to the paid plan (the remaining credit is kept) or use k3s on one
   EC2 instance, which this directory does not cover.
-- Rough cost, **unverified against the pricing pages**: EKS control plane 0.10 USD/h, two `t3.medium` about 0.04 USD/h
-  each, `db.t4g.micro` under 0.02 USD/h, plus storage and public IPv4 addresses. Around 5 USD a day, 25 USD for five days.
+- Rough cost, **unverified against the pricing pages**: EKS control plane 0.10 USD/h, two `c7i-flex.large` about 0.085 USD/h
+  each, `db.t4g.micro` under 0.02 USD/h, plus storage and public IPv4 addresses. Around 7 USD a day, 30 USD for four days.
   Check it in the AWS pricing calculator and write the total in the plan first. The monthly budget from `bootstrap/`
   is 5 USD, so it **will** send its alerts: raise it for the window, or expect the emails.
 - Put a calendar reminder on the day the window must close.
@@ -115,6 +115,11 @@ helm upgrade --install webhook-platform deploy/helm/webhook-platform -n webhooks
   --set "config.DATABASE_URL=jdbc:postgresql://${db}:5432/webhooks?sslmode=require" --wait
 kubectl -n webhooks port-forward svc/webhook-platform-api 8081:8080
 ```
+
+Two things that cost time in the first window. Every `terraform plan` and `apply` here needs `-var demo_window=true`
+while the window is open: without it the plan proposes destroying the whole window. And the VPC CNI applies a
+NetworkPolicy to a new pod a few seconds after it starts, so test the policy with `kubectl exec` into a running pod, not
+from a command that runs at start.
 
 The image comes from GHCR: make the package public (see above) or add an image pull secret and set
 `image.pullSecrets`. The chart's `ServiceMonitor` stays off unless kube-prometheus-stack is installed on the cluster.
