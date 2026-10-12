@@ -92,6 +92,11 @@ webhooks:
     # Pending deliveries of an endpoint that stays switched off this long are cancelled.
     cancel-after: 7d
     sweep-interval: 1h
+  retention:
+    # Events, deliveries and attempts older than this are deleted. An Idempotency-Key goes with its event.
+    period: 30d
+    interval: 1h
+    batch-size: 1000
   queue:
     name: webhook-deliveries
     region: ${AWS_REGION:us-east-1}

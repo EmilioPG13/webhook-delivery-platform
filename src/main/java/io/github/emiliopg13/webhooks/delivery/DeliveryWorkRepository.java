@@ -273,6 +273,38 @@ class DeliveryWorkRepository {
 			.update();
 	}
 
+	/**
+	 * Retention: deletes up to {@code limit} events created before {@code createdBefore}, with their deliveries and
+	 * attempts, in one statement. An event with a delivery still {@code pending} or {@code enqueued} is kept, because
+	 * the worker still has to read it. {@code SKIP LOCKED} leaves out an event that a replay is attaching a delivery
+	 * to right now (the foreign key takes a lock on it) instead of failing that replay.
+	 *
+	 * @return events deleted
+	 */
+	int deleteExpiredEvents(Instant createdBefore, int limit) {
+		return jdbc.sql("""
+				WITH expired AS (
+				    SELECT e.id
+				    FROM events e
+				    WHERE e.created_at < :createdBefore
+				      AND NOT EXISTS (SELECT 1 FROM deliveries d
+				                      WHERE d.event_id = e.id AND d.status IN ('pending', 'enqueued'))
+				    ORDER BY e.id
+				    LIMIT :limit
+				    FOR UPDATE SKIP LOCKED
+				), gone_attempts AS (
+				    DELETE FROM delivery_attempts
+				    WHERE delivery_id IN (SELECT id FROM deliveries WHERE event_id IN (SELECT id FROM expired))
+				), gone_deliveries AS (
+				    DELETE FROM deliveries WHERE event_id IN (SELECT id FROM expired)
+				)
+				DELETE FROM events WHERE id IN (SELECT id FROM expired)
+				""")
+			.param("createdBefore", Db.timestamp(createdBefore))
+			.param("limit", limit)
+			.update();
+	}
+
 	/** A failure extends the streak; {@code failing_since} keeps the date of its first failure. */
 	void recordEndpointFailure(UUID endpointId, Instant now) {
 		jdbc.sql("""

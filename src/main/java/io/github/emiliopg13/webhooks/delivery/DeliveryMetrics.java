@@ -35,6 +35,7 @@ class DeliveryMetrics {
 		registry.counter("webhooks.deliveries.deferred");
 		registry.counter("webhooks.deliveries.reaped");
 		registry.counter("webhooks.deliveries.cancelled");
+		registry.counter("webhooks.events.purged");
 	}
 
 	/**
@@ -79,6 +80,11 @@ class DeliveryMetrics {
 	/** The sweeper cancelled pending deliveries of an endpoint that stayed off. */
 	void cancelled(int count) {
 		registry.counter("webhooks.deliveries.cancelled").increment(count);
+	}
+
+	/** The retention job deleted events past the retention period, with their deliveries and attempts. */
+	void purged(int events) {
+		registry.counter("webhooks.events.purged").increment(events);
 	}
 
 }
