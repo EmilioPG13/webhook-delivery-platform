@@ -17,7 +17,7 @@
 		<java.version>25</java.version>
 		<springdoc.version>3.1.1</springdoc.version>
 		<bucket4j.version>8.21.0</bucket4j.version>
-		<aws-sdk.version>2.55.12</aws-sdk.version>
+		<aws-sdk.version>2.57.3</aws-sdk.version>
 		<wiremock.version>3.13.2</wiremock.version>
 		<standard-webhooks.version>1.2.0</standard-webhooks.version>
 	</properties>
