@@ -15,7 +15,7 @@
 	<description>Reliable webhook delivery platform</description>
 	<properties>
 		<java.version>25</java.version>
-		<springdoc.version>3.1.1</springdoc.version>
+		<springdoc.version>3.2.0</springdoc.version>
 		<bucket4j.version>8.21.0</bucket4j.version>
 		<aws-sdk.version>2.55.12</aws-sdk.version>
 		<wiremock.version>3.13.2</wiremock.version>
